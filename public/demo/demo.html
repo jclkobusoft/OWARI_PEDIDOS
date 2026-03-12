@@ -1,0 +1,69 @@
+<html>
+    <head>
+        <script src="https://code.jquery.com/jquery-3.7.1.js" integrity="sha256-eKhayi8LEQwp4NKxN+CfCh+3qOVUtJn3QNZ0TciWLP4=" crossorigin="anonymous"></script>
+
+        <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/3.10.1/lodash.js"></script>
+        <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jszip/2.5.0/jszip.min.js"></script>
+        <script type="text/javascript" src="../dist/excel-builder.dist.js"></script>
+        <script type="text/javascript" src="downloadify/js/swfobject.js"></script>
+        <script type="text/javascript" src="downloadify/js/downloadify.min.js"></script>
+    </head>
+    <body>
+        
+        <pre id="preview"><a href="#" id="downloader" download="sample.xlsx">Click me!</a></pre>
+        
+        <script type="text/javascript">
+            $.get('./testdata.json').then(function (data) {
+
+                var workbook = ExcelBuilder.Builder.createWorkbook();
+                var worksheet = workbook.createWorksheet({ name: 'Prueba' });
+                var stylesheet = workbook.getStyleSheet();
+
+                var originalData = [
+                    ['Artist', 'Album', 'Price'],
+                    ['Buckethead', 'Albino Slug', 8.99],
+                    ['Buckethead', 'Electric Tears', 13.99],
+                    ['Buckethead', 'Colma', 11.34],
+                    ['Crystal Method', 'Vegas', 10.54],
+                    ['Crystal Method', 'Tweekend', 10.64],
+                    ['Crystal Method', 'Divided By Night', 8.99]
+                ];
+
+                worksheet.setData(originalData);
+                workbook.addWorksheet(worksheet);
+
+
+
+
+
+                ExcelBuilder.Builder.createFile(workbook).then(function (data) {
+                    if('download' in document.createElement('a')){
+                        $("#downloader").attr({
+                            href: "data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,"+ data
+                        });
+                    } else {
+                        Downloadify.create('downloader',{
+                            filename: function(){
+                                return "sample.xls";
+                            },
+                            data: function(){
+                                return data;
+                            },
+    //                            onComplete: function(){ alert('Your File Has Been Saved!'); },
+    //                            onCancel: function(){ alert('You have cancelled the saving of this file.'); },
+    //                            onError: function(){ alert('You must put something in the File Contents or there will be nothing to save!'); },
+                            swf: 'downloadify/media/downloadify.swf',
+                            downloadImage: 'downloadify/images/download.png',
+                            width: 100,
+                            dataType: 'base64',
+                            height: 30,
+                            transparent: true,
+                            append: false
+                        });
+                    }
+                });
+            });
+        </script>
+        
+    </body>
+</html>

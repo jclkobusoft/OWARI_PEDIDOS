@@ -1,0 +1,10 @@
+.boton-rojo{
+	color: #d31531;
+}
+.main-slides-item {
+    padding-top: 250px;
+    padding-bottom: 250px;
+}
+.main-slides-item::before {
+    opacity: 0;
+}
