@@ -73,11 +73,6 @@
                                         @endif
                                     </p>
                                    
-                                    <p>
-                                        @if($producto->extra != "")
-                                            {{$producto->extra}}
-                                        @endif
-                                    </p>
 
                                     <ul class="products-info">
                                         
@@ -89,9 +84,6 @@
                                         @endif
                                         @if($producto->descripcion_3 != "")
                                             <li><span>{{$producto->descripcion_3}}</span> </li>
-                                        @endif
-                                        @if($producto->descripcion_4 != "")
-                                            <li><span>{{$producto->descripcion_4}}</span> </li>
                                         @endif
                                         @if($producto->caracteristicas_1 != "")
                                             <li><span>{{$producto->caracteristicas_1}}</span> </li>
@@ -112,13 +104,10 @@
                                                     <li class="tachado" style="display:none;">Precio original: <b class="precio_original" style="color:red;text-decoration: line-through;"></b></li>
                                                     <li>Precio: <b class="precio_real"></b></li>
                                                     <li class="notas_precio"></li>
-                                                    @if($producto->disponibilidad == "agotado")
-                                                        <li><b style="color:red;">NO DISPONIBLE CON EL PROVEEDOR</b></li>
-                                                    @endif
                                     </ul>
                                     <ul class="products-info info_proveedor" style="display: none;">
                                                     
-                                                    <li><b>{{ $producto->especial }}</b></li>
+                                                    <li><b></b></li>
                                                      @if(\Auth::user()->clienteData)
                                                         @if(\Auth::user()->clienteData->tiendita)                          
                                                                 <li><b class="precio_real">${{ $producto->precio_normal *(1+(\Auth::user()->clienteData->porcentaje/100)) }}</b></li>
@@ -299,25 +288,18 @@
                                                                 );
                                                         }, 500);
                                     </script>
-                                    @if($producto->extra_clave_1 != "" || $producto->extra_clave_2 != "" || $producto->extra_clave_3 != "")
+                                    @php
+                                        $equivConMarca = collect($equivalencias)->filter(fn($e) => $e->id_marca > 0);
+                                        $equivSinMarca = collect($equivalencias)->filter(fn($e) => !$e->id_marca || $e->id_marca == 0);
+                                    @endphp
+                                    @if($equivConMarca->count() > 0)
                                     <br><br><h5>Mismo producto, en otras marcas:</h5>
                                     <ul class="products-info">
-                                        @if($producto->extra_clave_1 != "")
+                                        @foreach($equivConMarca as $eq)
                                             <li>
-                                                <a href="{{route('tienda_online.detalles_producto',$producto->extra_clave_1)}}">{{$producto->extra_marca_1}} - {{$producto->extra_clave_1}}</a>
+                                                <a href="{{route('tienda_online.detalles_producto',$eq->clave)}}">{{$eq->marca}} - {{$eq->clave}}</a>
                                             </li>
-                                        @endif
-                                        @if($producto->extra_clave_2 != "")
-                                            <li>
-                                                <a href="{{route('tienda_online.detalles_producto',$producto->extra_clave_2)}}">{{$producto->extra_marca_2}} - {{$producto->extra_clave_2}}</a>
-                                            </li>
-                                        @endif
-                                        @if($producto->extra_clave_3 != "")
-                                            <li>
-                                                <a href="{{route('tienda_online.detalles_producto',$producto->extra_clave_3)}}">{{$producto->extra_marca_3}} - {{$producto->extra_clave_3}}</a>
-                                            </li>
-                                        @endif
-                                       
+                                        @endforeach
                                     </ul>
                                     @endif
                                 </div>
@@ -453,38 +435,15 @@
                             </ul>
                         </section>
 
-                        @if($producto->equivalencia_1 != "" ||$producto->equivalencia_1 != "" || $producto->equivalencia_1 != "" || $producto->equivalencia_1 != "" || $producto->equivalencia_1 != "")
+                        @if($equivSinMarca->count() > 0)
                             <section class="widget widget_categories">
                                 <h3 class="widget-title">Equivalencias</h3>
-
                                 <ul>
-                                    @if($producto->equivalencia_1 != "")
+                                    @foreach($equivSinMarca as $equiv)
                                         <li>
-                                            <span>{{$producto->equivalencia_1}}</span>
+                                            <span>{{$equiv->clave}}</span>
                                         </li>
-                                    @endif
-
-                                    @if($producto->equivalencia_2 != "")
-                                        <li>
-                                            <span>{{$producto->equivalencia_2}}</span>
-                                        </li>
-                                    @endif
-                                    @if($producto->equivalencia_3 != "")
-                                        <li>
-                                            <span>{{$producto->equivalencia_3}}</span>
-                                        </li>
-                                    @endif
-                                    @if($producto->equivalencia_4 != "")
-                                        <li>
-                                            <span>{{$producto->equivalencia_4}}</span>
-                                        </li>
-                                    @endif
-                                    @if($producto->equivalencia_5 != "")
-                                        <li>
-                                            <span>{{$producto->equivalencia_5}}</span>
-                                        </li>
-                                    @endif
-
+                                    @endforeach
                                 </ul>
                             </section>
                         @endif
@@ -508,12 +467,12 @@
                     <div class="col-lg-3 col-sm-6">
                         <div class="">
                             <div class="top-products-image text-center">
-                                <a href="{{route('tienda_online.detalles_producto',$relacionado['codigo_nikko'])}}">
+                                <a href="{{route('tienda_online.detalles_producto',$relacionado->codigo_nikko)}}">
                                 <?php
-                                    if(str_contains($relacionado['codigo_nikko'], '/'))
-                                        $codigo_nikko = str_replace("/", ":", $relacionado['codigo_nikko']);
+                                    if(str_contains($relacionado->codigo_nikko, '/'))
+                                        $codigo_nikko = str_replace("/", ":", $relacionado->codigo_nikko);
                                     else 
-                                        $codigo_nikko = $relacionado['codigo_nikko'];
+                                        $codigo_nikko = $relacionado->codigo_nikko;
 
 
                                                         $directory = '/var/www/vhosts/owari.com.mx/laravel/cms/storage/app/public/productos/'.$codigo_nikko;
@@ -537,8 +496,8 @@
 
                             <div class="top-products-content text-center" style="margin-bottom:35px;">
                                 <h3>
-                                    <a href="{{route('tienda_online.detalles_producto',$relacionado['codigo_nikko'])}}">{{$relacionado['codigo_nikko']}}</a>
-                                    <p>{{$relacionado['descripcion_1']}}</p>
+                                    <a href="{{route('tienda_online.detalles_producto',$relacionado->codigo_nikko)}}">{{$relacionado->codigo_nikko}}</a>
+                                    <p>{{$relacionado->descripcion_1}}</p>
                                 </h3>
                                 <!-- <span>$89.00</span>-->
                             </div>
@@ -619,7 +578,7 @@ $('.slider-productos-mini').slick({
 
         var $cantidad = $('.cantidad').val();
         var $numero_parte = $(this).data('numero');
-        var $disponible_proveedor = {{ $producto->disponibilidad == "agotado" ? 0 : 1 }};
+        var $disponible_proveedor = 1;
 
         if(producto_partida.cliente=="N/A"){
 

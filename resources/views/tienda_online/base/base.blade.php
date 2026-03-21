@@ -342,7 +342,18 @@
     <script src="{{asset("tienda_online/chosen/chosen.jquery.js")}}"></script>
     <script src="{{asset("tienda_online/js/mainw.js")}}"></script>
     <script type="text/javascript" src="//cdn.jsdelivr.net/npm/slick-carousel@1.8.1/slick/slick.min.js"></script>
-   
+
+    <script>
+    $('input[name="q"]').devbridgeAutocomplete({
+        serviceUrl: '{{route('tienda_online.autocompletar')}}',
+        minChars: 2,
+        noCache: true,
+        onSelect: function(suggestion) {
+            window.location.href = '{{route('tienda_online.detalles_producto', '')}}/' + suggestion.data;
+        }
+    });
+    </script>
+
   <style>
     @if(isset(\Auth::user()->clienteData))
         @if(\Auth::user()->clienteData->tiendita)

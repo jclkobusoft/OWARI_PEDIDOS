@@ -46,6 +46,7 @@ Route::get('/productos/larga-venta', [App\Http\Controllers\HomeController::class
 
 
 Route::get('/pedidos/crear', [App\Http\Controllers\PedidosController::class, 'crear'])->name('pedidos.crear');
+Route::get('/pedidos/busqueda', [App\Http\Controllers\PedidosController::class, 'apiBusqueda'])->name('pedidos.busqueda');
 Route::get('/pedidos/demo', [App\Http\Controllers\PedidosController::class, 'demo'])->name('pedidos.demo');
 Route::post('/pedidos/guardar', [App\Http\Controllers\PedidosController::class, 'guardar'])->name('pedidos.guardar');
 Route::post('pedidos/guardar_especial', [App\Http\Controllers\PedidosController::class, 'guardarPedidoEspecial'])->name('pedidos.guardar_especial');
@@ -91,6 +92,7 @@ Route::middleware(['auth', 'verified'])->prefix('tienda_online')->group(function
     //
     Route::get('dashboard', [App\Http\Controllers\TiendaOnlineController::class, 'dashboard'])->name('tienda_online.dashboard');
     Route::get('productos', [App\Http\Controllers\TiendaOnlineController::class, 'productos'])->name('tienda_online.productos');
+    Route::get('autocompletar', [App\Http\Controllers\TiendaOnlineController::class, 'autocompletar'])->name('tienda_online.autocompletar');
     Route::get('producto/{clave}', [App\Http\Controllers\TiendaOnlineController::class, 'detalleProducto'])->name('tienda_online.detalles_producto');
     Route::get('producto_demo/{clave}', [App\Http\Controllers\TiendaOnlineController::class, 'detalleProductoDemo'])->name('tienda_online.detalles_producto_demo');
     Route::post('productos/actualizar-favoritos', [App\Http\Controllers\TiendaOnlineController::class, 'actualizarFavoritos'])->name('tienda_online.actualizar_favoritos');

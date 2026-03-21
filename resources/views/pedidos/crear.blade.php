@@ -729,7 +729,7 @@
         function buscar($palabras) {
             $("#galeria").html('')
             resultados = [];
-            $.getJSON("https://owari.com.mx/api/busqueda", { q: $palabras },
+            $.getJSON("{{ route('pedidos.busqueda') }}", { q: $palabras },
                 function (data, textStatus, jqXHR) {
                     $.each(data, function (i, val) {
 

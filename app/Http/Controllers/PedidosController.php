@@ -33,6 +33,79 @@ class PedidosController extends Controller
      * @return \Illuminate\Contracts\Support\Renderable
      */
 
+    private function quitarAcentos($texto) {
+        $buscar =    ['á','é','í','ó','ú','Á','É','Í','Ó','Ú','ñ','Ñ','ü','Ü'];
+        $reemplazar = ['a','e','i','o','u','A','E','I','O','U','n','N','u','U'];
+        return str_replace($buscar, $reemplazar, $texto);
+    }
+
+    public function apiBusqueda(Request $request)
+    {
+        $q = $this->quitarAcentos($request->input('q', ''));
+        if (empty($q)) return response()->json([]);
+
+        if (stripos($q, ' ') !== false) {
+            // Multi-palabra: ILIKE AND
+            $palabras = array_filter(explode(" ", trim($q)));
+            $where = [];
+            $bindings = [];
+            foreach ($palabras as $p) {
+                $where[] = "pb.buscador ILIKE ?";
+                $bindings[] = '%' . $p . '%';
+            }
+            $whereClause = implode(' AND ', $where);
+        } else {
+            $whereClause = "pb.buscador ILIKE ?";
+            $bindings = ['%' . $q . '%'];
+        }
+
+        $resultados = \DB::connection('owari_soma')->select("
+            SELECT
+                m.nombre as marca_comercial,
+                p.clave as codigo_nikko,
+                pw.grupo,
+                pw.subgrupo,
+                pw.descripcion_1,
+                COALESCE(ppr.precio, 0) as precio_normal,
+                pb.buscador,
+                p.id as producto_id
+            FROM productos_busqueda pb
+            INNER JOIN productos p ON pb.producto_id = p.id
+            LEFT JOIN productos_web pw ON p.id = pw.id_producto AND pw.deleted_at IS NULL
+            LEFT JOIN marcas m ON p.id_marca = m.id AND m.deleted_at IS NULL
+            LEFT JOIN productos_precios ppr ON p.id = ppr.id_producto AND ppr.id_lista_precios = 1 AND ppr.id_sucursal = 1 AND ppr.deleted_at IS NULL
+            WHERE {$whereClause}
+            ORDER BY COALESCE(p.prioridad, 0) DESC NULLS LAST
+        ", $bindings);
+
+        // Deduplicar por codigo_nikko
+        $vistos = [];
+        $unicos = [];
+        foreach ($resultados as $r) {
+            if (!isset($vistos[$r->codigo_nikko])) {
+                $vistos[$r->codigo_nikko] = true;
+
+                // Cargar equivalencias con marca para este producto
+                $equivs = \DB::connection('owari_soma')->select("
+                    SELECT pe.clave, COALESCE(m.nombre, '') as marca
+                    FROM productos_equivalencias pe
+                    LEFT JOIN marcas m ON pe.id_marca = m.id AND m.deleted_at IS NULL
+                    WHERE pe.id_producto = ? AND pe.deleted_at IS NULL AND pe.id_marca IS NOT NULL AND pe.id_marca > 0
+                    ORDER BY pe.id LIMIT 3
+                ", [$r->producto_id]);
+
+                $r->extra_clave_1 = $equivs[0]->clave ?? null;
+                $r->extra_clave_2 = $equivs[1]->clave ?? null;
+                $r->extra_clave_3 = $equivs[2]->clave ?? null;
+                $r->disponibilidad = '';
+
+                $unicos[] = $r;
+            }
+        }
+
+        return response()->json(array_slice($unicos, 0, 250));
+    }
+
     public function crear()
     {
         if(!\Auth::user()->can('pedidos_crear'))
@@ -193,7 +266,15 @@ class PedidosController extends Controller
         ]];
         foreach ($partidas as $key => $value) {
             // code...
-            $producto = ProductoBusqueda::where('codigo_nikko',$value['codigo'])->first();
+            $provInfo = \DB::connection('owari_soma')->select("
+                SELECT pp.clave_proveedor, prov.nombre as proveedor
+                FROM productos_proveedores pp
+                INNER JOIN productos p ON pp.id_producto = p.id
+                LEFT JOIN proveedores prov ON pp.id_proveedor = prov.id
+                WHERE p.clave = ? AND pp.deleted_at IS NULL AND p.deleted_at IS NULL
+                LIMIT 1
+            ", [$value['codigo']]);
+            $provData = $provInfo[0] ?? null;
 
             $data = [
                 'id_pedido' => $pedido->id,
@@ -207,8 +288,8 @@ class PedidosController extends Controller
                 'id_pedido' => $pedido->id,
                 'clave' => $value['codigo'],
                 'cantidad' => floatval($value['cantidad']),
-                'clave_proveedor' => $producto ? $producto->clave_producto_proveedor : 'SIN CLAVE' ,
-                'proveedor' => $producto ? $producto->proveedor : 'Desconocido',
+                'clave_proveedor' => $provData ? $provData->clave_proveedor : 'SIN CLAVE',
+                'proveedor' => $provData ? $provData->proveedor : 'Desconocido',
                 'precio_unitario' => floatval($value['precio']),
                 'gran_total' => floatval($value['total']),
                 'sae' => $value['sae'],

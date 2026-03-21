@@ -29,12 +29,12 @@
                                     <div class="row align-items-center">
                                         <div class="col-lg-6 col-sm-6 col-12">
                                             <div class="shop-image">
-                                                <a href="{{route('tienda_online.detalles_producto',str_replace('/','_',$resultado['codigo_nikko']))}}">
+                                                <a href="{{route('tienda_online.detalles_producto',str_replace('/','_',$resultado->codigo_nikko))}}">
                                                 <?php
-                                                        if(str_contains($resultado['codigo_nikko'], '/'))
-                                                            $codigo_nikko = str_replace("/", "_", $resultado['codigo_nikko']);
+                                                        if(str_contains($resultado->codigo_nikko, '/'))
+                                                            $codigo_nikko = str_replace("/", "_", $resultado->codigo_nikko);
                                                         else 
-                                                            $codigo_nikko = $resultado['codigo_nikko'];
+                                                            $codigo_nikko = $resultado->codigo_nikko;
 
                                                         $directory = '/var/www/vhosts/owari.com.mx/laravel/cms/storage/app/public/productos/'.$codigo_nikko;
                                                      
@@ -61,30 +61,28 @@
                                         <div class="col-lg-6 col-sm-6 col-12">
                                             <div class="shop-content">
                                                 <h3 style="margin:0;">
-                                                    <a href="{{ route('tienda_online.detalles_producto',str_replace('/','_',$resultado['codigo_nikko'])) }}">{{$resultado['codigo_nikko'] }}</a>
-                                                    <small>{{ $resultado['marca_comercial'] }}</small>
+                                                    <a href="{{ route('tienda_online.detalles_producto',str_replace('/','_',$resultado->codigo_nikko)) }}">{{$resultado->codigo_nikko }}</a>
+                                                    <small>{{ $resultado->marca_comercial }}</small>
                                                 </h3>
-                                                @if($resultado['equivalencia_1'] !="")<small>{{$resultado['equivalencia_1']}}</small> @endif
-                                                @if($resultado['equivalencia_2'] !="")<small>{{$resultado['equivalencia_2']}}</small> @endif
-                                                @if($resultado['equivalencia_3'] !="")<small>{{$resultado['equivalencia_3']}}</small> @endif
-                                                @if($resultado['equivalencia_4'] !="")<small>{{$resultado['equivalencia_4']}}</small> @endif
-                                                @if($resultado['equivalencia_5'] !="")<small>{{$resultado['equivalencia_5']}}</small> @endif
+                                                @foreach($resultado->equivalencias as $equiv)
+                                                    <small>{{$equiv}}</small>
+                                                @endforeach
 
                                                 <ul class="shop-list">
-                                                    <li>{{$resultado['descripcion_1']}} @if($resultado['descripcion_2'] != "") {{$resultado['descripcion_2']}} @endif @if($resultado['descripcion_3'] != "") {{$resultado['descripcion_3']}} @endif</li>
-                                                    @if($resultado['caracteristicas_1'] != "") 
-                                                        <li>{{$resultado['caracteristicas_1']}}</li>
+                                                    <li>{{$resultado->descripcion_1}} @if($resultado->descripcion_2 != "") {{$resultado->descripcion_2}} @endif @if($resultado->descripcion_3 != "") {{$resultado->descripcion_3}} @endif</li>
+                                                    @if($resultado->caracteristicas_1 != "") 
+                                                        <li>{{$resultado->caracteristicas_1}}</li>
                                                     @endif
-                                                    @if($resultado['caracteristicas_2'] != "") 
-                                                        <li>{{$resultado['caracteristicas_2']}}</li>
+                                                    @if($resultado->caracteristicas_2 != "") 
+                                                        <li>{{$resultado->caracteristicas_2}}</li>
                                                     @endif
-                                                    @if($resultado['caracteristicas_3'] != "") 
-                                                        <li>{{$resultado['caracteristicas_3']}}</li>
+                                                    @if($resultado->caracteristicas_3 != "") 
+                                                        <li>{{$resultado->caracteristicas_3}}</li>
                                                     @endif
-                                                    @if($resultado['caracteristicas_4'] != "") 
-                                                        <li>{{$resultado['caracteristicas_4']}}</li>
+                                                    @if($resultado->caracteristicas_4 != "") 
+                                                        <li>{{$resultado->caracteristicas_4}}</li>
                                                     @endif
-                                                    <li>{{$resultado['grupo']}} - {{$resultado['subgrupo']}}</li>
+                                                    <li>{{$resultado->grupo}} - {{$resultado->subgrupo}}</li>
                                                     <li>Stock: <b class="existencia_real_{{ $key }}"></b></li>
                                                     <li>Precio: <b class="precio_real_{{ $key }}"></b></li>
                                                     <li class="notas_precio_{{ $key }}">
@@ -95,7 +93,7 @@
                                                 <script>
                                                         setTimeout(() => {
                                                             $.get( "https://sistemasowari.com:8443/catalowari/api/empresa_buscar_producto",
-                                                                    { cliente: '{{ \Auth::user()->clave_cliente }}', clave: '{{ $resultado['codigo_nikko'] }}', tipo: 'normal' },
+                                                                    { cliente: '{{ \Auth::user()->clave_cliente }}', clave: '{{ $resultado->codigo_nikko }}', tipo: 'normal' },
                                                                     function (data, textStatus, jqXHR) {
 
 
@@ -171,17 +169,17 @@
                                                 <ul class="shop-btn-list">
                                                     <li>
                                                         <!--<a href="wishlist.html" class="mb-1 btn-primary">Agregar a mis favoritos</a>-->
-                                                        <a href="{{route('tienda_online.detalles_producto',str_replace('/','_',$resultado['codigo_nikko']))}}">Ver detalles&nbsp;<i class="bi bi-eye-fill"></i></a>
+                                                        <a href="{{route('tienda_online.detalles_producto',str_replace('/','_',$resultado->codigo_nikko))}}">Ver detalles&nbsp;<i class="bi bi-eye-fill"></i></a>
                                                     </li>
                                                     <li>
                                                         <!--<a href="wishlist.html" class="mb-1 btn-primary">Agregar a mis favoritos</a>-->
                                                         <?php
-                                                            $favorito = App\Models\Favorito::where('numero_parte',$resultado['codigo_nikko'])->first();
+                                                            $favorito = App\Models\Favorito::where('numero_parte',$resultado->codigo_nikko)->first();
                                                         ?>
                                                         @if($favorito)
-                                                        <button data-numero="{{ $resultado['codigo_nikko'] }}" data-funcion="quitar" class="boton-fav favorito">Quitar de favoritos&nbsp;<i class="bi bi-x-circle-fill"></i></button>
+                                                        <button data-numero="{{ $resultado->codigo_nikko }}" data-funcion="quitar" class="boton-fav favorito">Quitar de favoritos&nbsp;<i class="bi bi-x-circle-fill"></i></button>
                                                         @else
-                                                        <button data-numero="{{ $resultado['codigo_nikko'] }}" data-funcion="agregar" class="boton-fav favorito">Añadir a favoritos&nbsp;<i class="bi bi-bookmark-plus-fill"></i></button>
+                                                        <button data-numero="{{ $resultado->codigo_nikko }}" data-funcion="agregar" class="boton-fav favorito">Añadir a favoritos&nbsp;<i class="bi bi-bookmark-plus-fill"></i></button>
                                                         @endif
                                                     </li>
                                                           

@@ -71,11 +71,9 @@
                                                     <a href="{{ route('tienda_online.detalles_producto',$codigo_nikko) }}">{{$resultado->codigo_nikko}}</a>
                                                     <small>{{ $resultado->marca_comercial }}</small>
                                                 </h3>
-                                                @if($resultado->equivalencia_1 !="")<small>{{$resultado->equivalencia_1}}</small> @endif
-                                                @if($resultado->equivalencia_2 !="")<small>{{$resultado->equivalencia_2}}</small> @endif
-                                                @if($resultado->equivalencia_3 !="")<small>{{$resultado->equivalencia_3}}</small> @endif
-                                                @if($resultado->equivalencia_4 !="")<small>{{$resultado->equivalencia_4}}</small> @endif
-                                                @if($resultado->equivalencia_5 !="")<small>{{$resultado->equivalencia_5}}</small> @endif
+                                                @foreach($resultado->equivalencias as $equiv)
+                                                    <small>{{$equiv}}</small>
+                                                @endforeach
 
                                                 <ul class="shop-list">
                                                     <li>{{$resultado->descripcion_1}} @if($resultado->descripcion_2 != "") {{$resultado->descripcion_2}} @endif @if($resultado->descripcion_3 != "") {{$resultado->descripcion_3}} @endif</li>
