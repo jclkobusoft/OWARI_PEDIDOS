@@ -121,8 +121,8 @@ class PedidosController extends Controller
     public function guardar(Request $request)
     {
         extract($request->all());
-        $partidas = $partidas ?? [];
-        $partidas_detalle = $partidas_detalle ?? [];
+        $partidas = $request->input('partidas', []);
+        $partidas_detalle = $request->input('partidas_detalle', []);
         $partidas_uno = [];
         $partidas_tres = [];
 
