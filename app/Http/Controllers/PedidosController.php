@@ -121,8 +121,15 @@ class PedidosController extends Controller
     public function guardar(Request $request)
     {
         extract($request->all());
+        $partidas = $partidas ?? [];
+        $partidas_detalle = $partidas_detalle ?? [];
         $partidas_uno = [];
         $partidas_tres = [];
+
+        if (empty($partidas)) {
+            return json_encode(['code' => 1, 'id_pedido' => 0, 'partidas_a' => [], 'partidas_b' => []]);
+        }
+
         $pedido = Pedido::create([
             'entrada' => strval(json_encode($request->all()))
         ]);

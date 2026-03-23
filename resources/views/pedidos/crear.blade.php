@@ -1223,6 +1223,18 @@
 
 
 
+            // Si no hay partidas normales, no guardar pedido normal
+            if (partidas_formulario.length <= 0) {
+                if (partidas_formulario_especial.length > 0) {
+                    $(".texto_modal").html("<h5>Tu pedido especial fue guardado correctamente.</h5>");
+                    $(".modal-footer-especiales").show();
+                    $("#modal").modal("show");
+                    table_partidas_especiales.setData([]);
+                    $('#guardar').removeAttr('disabled');
+                }
+                return;
+            }
+
             var data = {
                 usuario: '{{ \Auth::user()->name }}',
                 cliente: clientes[$("#cliente").val()],
