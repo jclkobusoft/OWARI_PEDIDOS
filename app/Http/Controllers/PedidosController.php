@@ -267,7 +267,7 @@ class PedidosController extends Controller
         foreach ($partidas as $key => $value) {
             // code...
             $provInfo = \DB::connection('owari_soma')->select("
-                SELECT pp.clave_proveedor, prov.nombre as proveedor
+                SELECT pp.clave_proveedor, COALESCE(prov.nombre_simple, prov.razon_social, '') as proveedor
                 FROM productos_proveedores pp
                 INNER JOIN productos p ON pp.id_producto = p.id
                 LEFT JOIN proveedores prov ON pp.id_proveedor = prov.id
