@@ -222,7 +222,7 @@ class TiendaOnlineController extends Controller
                 $tipo_busqueda = 'palabras';
             } else {
                 $tipo_busqueda = 'palabra';
-                $q_busqueda = preg_replace('/[^A-Za-z0-9]/', '', $q);
+                $q_busqueda = preg_replace('/[^A-Za-z0-9]/', '', $this->quitarAcentos($q));
             }
             $busqueda = "Resultados para: " . $q;
             $peticion = "?q=" . $q . "&p=";
