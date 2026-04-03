@@ -24,7 +24,7 @@ class PedidosController extends Controller
     public function __construct()
     {
         $this->middleware('auth');
-       
+
     }
 
     /**
@@ -137,7 +137,7 @@ class PedidosController extends Controller
             foreach ($partidas_detalle as $llave => $valor) {
             	if(!isset($valor['clave']))
             	   continue;
-            	
+
                 if (trim($value['codigo']) == trim($valor['clave'])) {
 
                     if(!isset($valor['existencia_remision']) || !isset($valor['existencia_factura']))
@@ -197,7 +197,7 @@ class PedidosController extends Controller
                             }
 
                             break;
-                    }                   
+                    }
                 }
             }
         }
@@ -205,7 +205,7 @@ class PedidosController extends Controller
 
         array_multisort(array_column($partidas_uno, 'almacen'), SORT_DESC, $partidas_uno);
         array_multisort(array_column($partidas_tres, 'almacen'), SORT_DESC, $partidas_tres);
-       
+
 
 
 
@@ -214,7 +214,7 @@ class PedidosController extends Controller
             'partidas_b' => strval(json_encode($partidas_tres))
         ])->save();
 
-        
+
 
         return json_encode([
             'code' => 1,
@@ -227,14 +227,14 @@ class PedidosController extends Controller
 
     public function guardarPedidoEspecial(Request $r){
         extract($r->all());
-        
+
         if(is_array($cliente))
             $clave_cliente = $cliente['clave'];
         else
             $clave_cliente = $cliente;
 
         $url = 'https://sistemasowari.com:8443/catalowari/api/datos_cliente?' . http_build_query(["clave" =>  $clave_cliente]);
-        
+
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, $url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -274,7 +274,7 @@ class PedidosController extends Controller
         foreach ($partidas as $key => $value) {
             // code...
             $provInfo = \DB::connection('owari_soma')->select("
-                SELECT pp.clave_proveedor, COALESCE(prov.nombre_simple, prov.razon_social, '') as proveedor
+                SELECT pp.clave_proveedor, prov.clave as proveedor
                 FROM productos_proveedores pp
                 INNER JOIN productos p ON pp.id_producto = p.id
                 LEFT JOIN proveedores prov ON pp.id_proveedor = prov.id
@@ -310,23 +310,23 @@ class PedidosController extends Controller
 
         $archivo = date('YmdHis').".xlsx";
         $archivo_excel = "pedidos_especiales/".$archivo;
-       
+
 
         $export = new PedidoEspecialPartidasExport($arreglo);
         Excel::store($export, $archivo_excel);
 
 
-        
+
          \Mail::send('emails.pedido_especial', compact('pedido','info_cliente'), function ($message) use ($pedido,$archivo){
                 $message->from('pedido_especial@owari.com.mx', 'Pedido Especial');
                 $message->subject("Pedido especial ".$pedido->id);
                 $message->attach(storage_path()."/app/pedidos_especiales/".$archivo);
-                $message->to(['direccion@owari.com.mx','ventas2@owari.com.mx','ventas3@owari.com.mx','compras@owari.com.mx']);                
+                $message->to(['direccion@owari.com.mx','ventas2@owari.com.mx','ventas3@owari.com.mx','compras@owari.com.mx']);
             });
 
-         
+
             \Session::put('cartEspecial', []);
-         
+
 
         return json_encode([
             'code' => 1,
@@ -383,7 +383,7 @@ class PedidosController extends Controller
         foreach($partidas_especiales as $key => $value){
             $partidas_especiales[$key]['tipo'] = 'ESPECIAL';
         }
-       
+
         $arreglo = array_merge($encabezados, $partidas, $partidas_especiales);
 
 
@@ -394,7 +394,7 @@ class PedidosController extends Controller
                 $message->from('pedido_especial@owari.com.mx', 'Pedido Pendiente');
                 $message->subject("IGNORAME ESTAMOS EN PRUEBAS Pedido cliente nuevo ".$pedido_pendiente->id);
                 $message->attach(storage_path()."/app/pedidos_pendientes/".$archivo);
-                $message->to(['direccion@owari.com.mx','ventas2@owari.com.mx','ventas3@owari.com.mx','compras@owari.com.mx']);                
+                $message->to(['direccion@owari.com.mx','ventas2@owari.com.mx','ventas3@owari.com.mx','compras@owari.com.mx']);
             });
 
 
@@ -402,7 +402,7 @@ class PedidosController extends Controller
             'code' => 1,
             'id_pedido' => $pedido_pendiente->id
         ]);
-        
+
     }
 
 
