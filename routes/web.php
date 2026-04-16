@@ -102,6 +102,7 @@ Route::middleware(['auth', 'verified'])->prefix('tienda_online')->group(function
     Route::get('carrito', [App\Http\Controllers\TiendaOnlineController::class, 'carrito'])->name('tienda_online.carrito');
     Route::get('carrito_aux', [App\Http\Controllers\TiendaOnlineController::class, 'carritoAux'])->name('tienda_online.carrito_aux');
     Route::post('carrito/guardar_pedido', [App\Http\Controllers\TiendaOnlineController::class, 'guardarPedido'])->name('tienda_online.guardar_pedido');
+    Route::post('carrito/verificar_duplicado', [App\Http\Controllers\TiendaOnlineController::class, 'verificarPedidoDuplicado'])->name('tienda_online.verificar_duplicado');
     Route::get('pedido/guardado_exitoso', [App\Http\Controllers\TiendaOnlineController::class, 'guardadoExitoso'])->name('tienda_online.guardado_exitoso');
     Route::get('pedido/guardado_pendiente_exitoso', [App\Http\Controllers\TiendaOnlineController::class, 'guardadoPendienteExitoso'])->name('tienda_online.guardado_pendiente_exitoso');
     Route::get('pedidos', [App\Http\Controllers\TiendaOnlineController::class, 'misPedidos'])->name('tienda_online.pedidos');

@@ -469,6 +469,9 @@
                     <div class="col-lg-4 col-md-12">
                         <div class="cart-totals">
 
+                            <button id="vaciar_carrito_btn" class="btn btn-sm mb-3" style="background-color:#c62828; color:white; width:100%;">
+                                <i class="bi bi-trash"></i> Vaciar carrito
+                            </button>
 
                             <h3>Entrega y factura</h3>
                             <div class="mb-3">
@@ -547,6 +550,11 @@
                             <button id="guardar" class="default-btn">
                                 Generar pedido
                             </button>
+                            <div id="aviso_duplicado" class="mt-2" style="display:none; padding:10px; border:1px solid #f0c36d; background-color:#fff3cd; color:#856404; border-radius:6px; font-size:13px;">
+                                <b>&#9888; Atencion:</b>
+                                <span id="aviso_duplicado_texto"></span>
+                                <ul id="aviso_duplicado_lista" style="margin:6px 0 0 18px; padding:0; font-size:12px;"></ul>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -790,7 +798,6 @@
             var pedidoEnviado = false;
 
             $("#guardar").click(function(event) {
-                /* Act on the event */
                 if (pedidoEnviado) return false;
 
                 if ($("#recibir").val() == "" || $("#forma_pago").val() == "") {
@@ -801,6 +808,45 @@
                 pedidoEnviado = true;
                 $(this).attr('disabled', 'disabled').text('Enviando pedido...');
                 guardar_pedido();
+            });
+
+            // Al cargar el carrito, verificar si hay partidas similares al ultimo pedido
+            (function verificarDuplicado() {
+                var claves = [];
+                for (var i = 0; i < partidas_finales.length; i++) claves.push(partidas_finales[i].codigo);
+                for (var i = 0; i < partidas_especiales_finales.length; i++) claves.push(partidas_especiales_finales[i].codigo);
+                if (claves.length === 0) return;
+
+                $.post("{{ route('tienda_online.verificar_duplicado') }}",
+                    { claves: claves, '_token': "{{ csrf_token() }}" },
+                    function(data) {
+                        if (data && data.similar) {
+                            var refPedido = data.pedido_sae_anterior && data.pedido_sae_anterior != "0"
+                                ? "#" + data.pedido_sae_anterior + " (" + data.fecha_anterior + ")"
+                                : "del " + data.fecha_anterior;
+                            $('#aviso_duplicado_texto').html(
+                                ' Este pedido contiene <b>' + data.total_coincidencias +
+                                '</b> productos iguales a los de tu pedido anterior ' + refPedido +
+                                '. Verifica que no lo estes duplicando antes de generarlo.'
+                            );
+                            $('#aviso_duplicado_lista').html(
+                                data.coincidencias.map(function(c){ return '<li>' + c + '</li>'; }).join('')
+                            );
+                            $('#aviso_duplicado').show();
+                        }
+                    },
+                    "json"
+                );
+            })();
+
+            $('#vaciar_carrito_btn').click(function(e) {
+                e.preventDefault();
+                if (!confirm('Se eliminaran todas las partidas del carrito (normales y especiales). Deseas continuar?')) return;
+                $.get("{{ route('tienda_online.vaciar_carrito') }}", function() {
+                    window.location.reload();
+                }).fail(function() {
+                    window.location.reload();
+                });
             });
 
 

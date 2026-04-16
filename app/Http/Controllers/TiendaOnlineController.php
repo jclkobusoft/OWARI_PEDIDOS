@@ -1049,6 +1049,46 @@ class TiendaOnlineController extends Controller
     }
 
 
+    public function verificarPedidoDuplicado(Request $request)
+    {
+        $claves = $request->input('claves', []);
+        $claves = array_values(array_filter(array_map('trim', $claves)));
+
+        if (empty($claves)) {
+            return response()->json(['similar' => false]);
+        }
+
+        // Ultimo pedido del cliente
+        $ultimoPedido = PedidoWeb::where('cliente', \Auth::user()->clave_cliente)
+            ->orderBy('created_at', 'desc')
+            ->first();
+
+        if (!$ultimoPedido) {
+            return response()->json(['similar' => false]);
+        }
+
+        $clavesAnterior = PedidoPartida::where('id_pedido', $ultimoPedido->id)
+            ->pluck('clave')
+            ->map(fn($c) => trim($c))
+            ->toArray();
+
+        $coincidencias = array_values(array_intersect($claves, $clavesAnterior));
+
+        if (count($coincidencias) >= 2) {
+            return response()->json([
+                'similar' => true,
+                'id_pedido_anterior' => $ultimoPedido->id,
+                'pedido_sae_anterior' => $ultimoPedido->pedido_sae,
+                'fecha_anterior' => $ultimoPedido->created_at ? $ultimoPedido->created_at->format('d/m/Y H:i') : '',
+                'coincidencias' => $coincidencias,
+                'total_coincidencias' => count($coincidencias),
+            ]);
+        }
+
+        return response()->json(['similar' => false]);
+    }
+
+
     public function guardadoExitoso(Request $r)
     {
         extract($r->all());
