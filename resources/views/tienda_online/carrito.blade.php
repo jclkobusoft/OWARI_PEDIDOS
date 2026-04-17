@@ -246,6 +246,8 @@
                                                             precio_iva = obj.descuentos[0].precio_iva;
                                                         }
 
+                                                        var existenciaSae = {{ (int) data_get($producto, 'existencia_real_sae', 0) }};
+                                                        if ('{{ data_get($producto, 'clave_proveedor', '') }}' === 'S227') obj.existencia = existenciaSae + 2;
                                                         $('.precio-unitario-{{ $i }}').html("$ " + parseFloat(precio * porcentaje).toFixed(2));
                                                         $('.total_partida_{{ $i }}').html("$ " + parseFloat(precio * cantidad * porcentaje).toFixed(2));
                                                         $('.cantidad_{{ $i }}').attr('max', obj.existencia);
@@ -257,7 +259,9 @@
                                                                 "cantidad": cantidad,
                                                                 "precio": parseFloat(precio).toFixed(2),
                                                                 "precio_iva": parseFloat(precio_iva).toFixed(2),
-                                                                "total": (cantidad * precio).toFixed(2)
+                                                                "total": (cantidad * precio).toFixed(2),
+                                                                "existencia_sae": existenciaSae,
+                                                                "clave_proveedor": '{{ data_get($producto, 'clave_proveedor', '') }}'
                                                             })
                                                             partidas.push(producto_partida);
 
@@ -438,6 +442,7 @@
                                                             precio = precio * descuento * 1.16;
                                                         }
 
+                                                        if ('{{ data_get($producto, 'clave_proveedor', '') }}' === 'S227') obj.existencia = parseInt(obj.existencia) + 2;
                                                         $('.precio-unitario-{{ $i }}').html("$ " + parseFloat(precio * porcentaje).toFixed(2));
                                                         $('.total_partida_{{ $i }}').html("$ " + parseFloat(precio * cantidad * porcentaje).toFixed(2));
                                                         $('.cantidad_{{ $i }}').attr('max', obj.existencia);
@@ -810,7 +815,6 @@
                 guardar_pedido();
             });
 
-            // Al cargar el carrito, verificar si hay partidas similares al ultimo pedido
             (function verificarDuplicado() {
                 var claves = [];
                 for (var i = 0; i < partidas_finales.length; i++) claves.push(partidas_finales[i].codigo);
@@ -852,7 +856,53 @@
 
             function guardar_pedido() {
 
+                var partidas_syd_finales = [];
+                var partidas_finales_ajustadas = [];
+                for (var i = 0; i < partidas_finales.length; i++) {
+                    var p = Object.assign({}, partidas_finales[i]);
+                    if (p.clave_proveedor === 'S227') {
+                        var cant = parseInt(p.cantidad);
+                        var existenciaSae = parseInt(p.existencia_sae != null ? p.existencia_sae : 0);
+                        if (existenciaSae <= 0) {
+                            partidas_syd_finales.push(p);
+                            continue;
+                        } else if (cant > existenciaSae) {
+                            var faltante = cant - existenciaSae;
+                            var pSae = Object.assign({}, p);
+                            pSae.cantidad = existenciaSae;
+                            pSae.total = (existenciaSae * parseFloat(pSae.precio)).toFixed(2);
+                            partidas_finales_ajustadas.push(pSae);
+
+                            var pSyd = Object.assign({}, p);
+                            pSyd.cantidad = faltante;
+                            pSyd.total = (faltante * parseFloat(pSyd.precio)).toFixed(2);
+                            partidas_syd_finales.push(pSyd);
+                            continue;
+                        }
+                    }
+                    partidas_finales_ajustadas.push(p);
+                }
+                partidas_finales = partidas_finales_ajustadas;
                 var partidas_formulario = partidas_finales;
+
+                function enviarSYD(onDone) {
+                    if (partidas_syd_finales.length === 0) { onDone && onDone(null); return; }
+                    var dataSYD = {
+                        cliente: '{{ \Auth::user()->clave_cliente }}',
+                        '_token': "{{ csrf_token() }}",
+                        partidas: partidas_syd_finales,
+                        carrito: 1,
+                        clave_proveedor: 'S227'
+                    };
+                    $.post("{{ route('pedidos.guardar_especial') }}", dataSYD,
+                        function(res) {
+                            try {
+                                var r = (typeof res === 'string') ? JSON.parse(res) : res;
+                                onDone && onDone(r);
+                            } catch(e) { onDone && onDone(null); }
+                        }
+                    ).fail(function() { onDone && onDone(null); });
+                }
 
                 var variables = {
                     usuario: '{{ \Auth::user()->name }}',
@@ -874,7 +924,6 @@
                 };
 
                 var partidas_soma_especial = [];
-
                 for (var i = 0; i < partidas_especiales_finales.length; i++) {
                     partidas_soma_especial.push({
                         "clave": partidas_especiales_finales[i].codigo,
@@ -892,7 +941,6 @@
                 }
 
                 var partidas_soma_pedido = [];
-
                 for (var i = 0; i < partidas_formulario.length; i++) {
                     partidas_soma_pedido.push({
                         "clave": partidas_formulario[i].codigo,
@@ -902,8 +950,7 @@
                     });
                 }
 
-                
-                 var soma_pedido = {
+                var soma_pedido = {
                     "clave_cliente": "{{ \Auth::user()->clave_cliente }}",
                     "clave_sucursal": "E01",
                     "tipo_serie": "W",
@@ -913,7 +960,6 @@
                 $('#staticBackdrop').modal('show');
 
                 @if(\Auth::user()->clave_cliente == "M014M")
-                //Aqui solo se ejecuta codigo para clientes registrados asi nomas
                     $.post("{{ route('pedidos.guardar_pedido_pendiente_web') }}", variables,
                             function(data, textStatus, jqXHR) {
                                 if (data.code) {
@@ -929,116 +975,161 @@
                             },
                             "json"
                         );
-                 
-                 
+
+
                 @else
                     @if (count($productos_especiales) >= 0 && count($productos) <= 0)
-                        var data = {
-                            cliente: '{{ \Auth::user()->clave_cliente }}',
-                            '_token': "{{ csrf_token() }}",
-                            partidas: partidas_especiales_finales,
-                            carrito: 1
-                        };
-
-                        $.ajax({
-                            url: "{{ route('pedidos.guardar_especial') }}",
-                            type: "POST",
-                            data: data,
-                            success: function(responseData, textStatus, jqXHR) {
-                                try {
-                                    var res = (typeof responseData === 'string') ? JSON.parse(responseData) : responseData;
-                                    var idPedido = (res && (res.id_pedido || res.id)) ? (res.id_pedido || res.id) : '';
+                        (function enviarSoloEspeciales() {
+                            var finalizar = function(idEspecial, idSyd) {
+                                var idPedido = idEspecial || idSyd || '';
+                                $.get("{{ route('tienda_online.vaciar_carrito') }}").always(function() {
                                     window.location.href = "{{ route('tienda_online.guardado_exitoso') }}?id_pedido=" + idPedido + "&tipo=especial";
-                                } catch(e) {
-                                    window.location.href = "{{ route('tienda_online.guardado_exitoso') }}?tipo=especial";
-                                }
-                            },
-                            error: function(jqXHR) {
-                                console.log('guardar_especial error:', jqXHR.status, jqXHR.responseText);
-                                $(".modal-body").html(
-                                    "<h5>Tu pedido especial no se guardo, da click en el boton cerrar e intenta guardarlo nuevamente .</h5>"
-                                );
+                                });
+                            };
+
+                            var tieneEspeciales = partidas_especiales_finales.length > 0;
+                            var tieneSYD = partidas_syd_finales.length > 0;
+
+                            if (!tieneEspeciales && !tieneSYD) {
+                                $(".modal-body").html("<h5>No hay partidas para guardar.</h5>");
                                 $(".modal-footer").show();
+                                return;
                             }
-                        });
-                        
+
+                            if (tieneEspeciales) {
+                                var data = {
+                                    cliente: '{{ \Auth::user()->clave_cliente }}',
+                                    '_token': "{{ csrf_token() }}",
+                                    partidas: partidas_especiales_finales,
+                                    carrito: 1
+                                };
+                                $.ajax({
+                                    url: "{{ route('pedidos.guardar_especial') }}",
+                                    type: "POST",
+                                    data: data,
+                                    success: function(responseData) {
+                                        var idEspecial = '';
+                                        try {
+                                            var res = (typeof responseData === 'string') ? JSON.parse(responseData) : responseData;
+                                            idEspecial = (res && (res.id_pedido || res.id)) ? (res.id_pedido || res.id) : '';
+                                        } catch(e) {}
+                                        enviarSYD(function(sydRes) {
+                                            var idSyd = (sydRes && (sydRes.id_pedido || sydRes.id)) ? (sydRes.id_pedido || sydRes.id) : '';
+                                            finalizar(idEspecial, idSyd);
+                                        });
+                                    },
+                                    error: function(jqXHR) {
+                                        console.log('guardar_especial error:', jqXHR.status, jqXHR.responseText);
+                                        $(".modal-body").html("<h5>Tu pedido especial no se guardo, da click en el boton cerrar e intenta guardarlo nuevamente .</h5>");
+                                        $(".modal-footer").show();
+                                    }
+                                });
+                            } else {
+                                enviarSYD(function(sydRes) {
+                                    var idSyd = (sydRes && (sydRes.id_pedido || sydRes.id)) ? (sydRes.id_pedido || sydRes.id) : '';
+                                    finalizar('', idSyd);
+                                });
+                            }
+                        })();
+
                     @else
+
+                        if (partidas_finales.length === 0) {
+                            (function enviarSoloEspecialesAux() {
+                                var finalizar = function(idEspecial, idSyd) {
+                                    var idPedido = idEspecial || idSyd || '';
+                                    window.location.href = "{{ route('tienda_online.guardado_exitoso') }}?id_pedido=" + idPedido + "&tipo=especial";
+                                };
+
+                                if (partidas_especiales_finales.length > 0) {
+                                    var data = {
+                                        cliente: '{{ \Auth::user()->clave_cliente }}',
+                                        '_token': "{{ csrf_token() }}",
+                                        partidas: partidas_especiales_finales,
+                                        carrito: 1
+                                    };
+                                    $.post("{{ route('pedidos.guardar_especial') }}", data, function(responseData) {
+                                        var idEspecial = '';
+                                        try {
+                                            var res = (typeof responseData === 'string') ? JSON.parse(responseData) : responseData;
+                                            idEspecial = (res && (res.id_pedido || res.id)) ? (res.id_pedido || res.id) : '';
+                                        } catch(e) {}
+                                        enviarSYD(function(sydRes) {
+                                            var idSyd = (sydRes && (sydRes.id_pedido || sydRes.id)) ? (sydRes.id_pedido || sydRes.id) : '';
+                                            finalizar(idEspecial, idSyd);
+                                        });
+                                    }).fail(function() {
+                                        $(".modal-body").html("<h5>Tu pedido especial no se guardo, da click en el boton cerrar e intenta guardarlo nuevamente .</h5>");
+                                        $(".modal-footer").show();
+                                    });
+                                } else {
+                                    enviarSYD(function(sydRes) {
+                                        var idSyd = (sydRes && (sydRes.id_pedido || sydRes.id)) ? (sydRes.id_pedido || sydRes.id) : '';
+                                        finalizar('', idSyd);
+                                    });
+                                }
+                            })();
+                            return;
+                        }
 
                         $.post("https://sistemasowari.com:8443/catalowari/api/guardar_web", variables,
                             function(data, textStatus, jqXHR) {
                                 if (data.code) {
                                     variables.pedido_sae = data.pedido;
+                                    var folioSae = data.pedido;
 
-                                    if (partidas_especiales_finales.length > 0) {
-
-                                        var data = {
-                                            cliente: '{{ \Auth::user()->clave_cliente }}',
-                                            '_token': "{{ csrf_token() }}",
-                                            partidas: partidas_especiales_finales,
-                                            carrito: 1
-                                        };
-
-
-                                        $.post("{{ route('pedidos.guardar_especial') }}", data,
-                                            function(data, textStatus, jqXHR) {
-                                                /*$.post("https://owari.appsoma.online/somma/v2.0/pedidos/especial/externo", soma_especial,
-                                                    function(data, textStatus, jqXHR) {
-                                                        
-                                                    },
-                                                    "json"
-                                                );*/
-                                            },
-                                            "json"
-                                        ).fail(function() {
-                                            $(".modal-body").html(
-                                                "<h5>Tu pedido especial no se guardo, da click en el boton cerrar e intenta guardar el pedido nuevamente .</h5>"
-                                                );
-                                            $(".modal-footer").show();
-                                        });
-                                    }
-
-
-                                    $.post("{{ route('tienda_online.guardar_pedido') }}", variables,
-                                        function(data, textStatus, jqXHR) {
-                                            if (data.code) {
-
-                                                var pedido_final = data.id_pedido;
-
-                                                /*$.post("https://owari.appsoma.online/somma/v2.0/pedidos/externo", soma_pedido,
-                                                    function(data, textStatus, jqXHR) {
-                                                        window.location.href = "{{ route('tienda_online.guardado_exitoso') }}?id_pedido=" + pedido_final;
-                                                    },
-                                                    "json"
-                                                );*/
-
-                                                window.location.href = "{{ route('tienda_online.guardado_exitoso') }}?id_pedido=" + pedido_final;
-
-                                            } else {
-                                                $(".modal-body").html(
-                                                    "<h5>Tu pedido no se guardo, da click en el boton cerrar e intenta guardarlo nuevamente .</h5>"
-                                                    );
-                                                $(".modal-footer").show();
-                                            }
-                                        },
-                                        "json"
-                                    ).fail(function() {
+                                    var mensajeErrorPostSAE = function(detalle) {
                                         $(".modal-body").html(
-                                            "<h5>Tu pedido no se guardo, da click en el boton cerrar e intenta guardarlo nuevamente .</h5>"
-                                            );
-                                        $(".modal-footer").show();
-                                    });
-                                } else {
-                                    $(".modal-body").html(
-                                        "<h5>Tu pedido no se guardo, da click en el boton cerrar e intenta guardarlo nuevamente .</h5>"
+                                            "<div style='text-align:left;'>" +
+                                            "<h5 style='color:#c62828;'>Tu pedido ya fue registrado en SAE con el folio <b>" + folioSae + "</b>.</h5>" +
+                                            "<p>Sin embargo, ocurrio un problema al registrar informacion adicional. <b>Por favor NO vuelvas a enviar este pedido</b>.</p>" +
+                                            "<p>Comunicate con ventas y reporta el folio <b>" + folioSae + "</b> para que se le de seguimiento.</p>" +
+                                            (detalle ? "<p style='font-size:12px;color:#888;'>Detalle: " + detalle + "</p>" : "") +
+                                            "</div>"
                                         );
+                                        $(".modal-footer").show();
+                                    };
+
+                                    var pasoEspecial = function(cb) {
+                                        if (partidas_especiales_finales.length > 0) {
+                                            var dataEsp = {
+                                                cliente: '{{ \Auth::user()->clave_cliente }}',
+                                                '_token': "{{ csrf_token() }}",
+                                                partidas: partidas_especiales_finales,
+                                                carrito: 1
+                                            };
+                                            $.post("{{ route('pedidos.guardar_especial') }}", dataEsp, function() { cb(); }, "json")
+                                                .fail(function() { cb(); });
+                                        } else { cb(); }
+                                    };
+                                    var pasoSYD = function(cb) { enviarSYD(function() { cb(); }); };
+                                    var pasoPedido = function() {
+                                        $.post("{{ route('tienda_online.guardar_pedido') }}", variables,
+                                            function(data) {
+                                                if (data.code) {
+                                                    window.location.href = "{{ route('tienda_online.guardado_exitoso') }}?id_pedido=" + data.id_pedido;
+                                                } else {
+                                                    mensajeErrorPostSAE('No se pudo registrar localmente.');
+                                                }
+                                            }, "json"
+                                        ).fail(function() {
+                                            mensajeErrorPostSAE('Error de red al registrar localmente.');
+                                        });
+                                    };
+
+                                    pasoEspecial(function() { pasoSYD(function() { pasoPedido(); }); });
+                                } else {
+                                    pedidoEnviado = false;
+                                    $("#guardar").removeAttr('disabled').text('Generar pedido');
+                                    $(".modal-body").html("<h5>Tu pedido no se guardo en SAE. Da click en el boton cerrar e intenta guardarlo nuevamente.</h5>");
                                     $(".modal-footer").show();
                                 }
                             },
                             "json"
                         ).fail(function() {
-                            $(".modal-body").html(
-                                "<h5>Tu pedido no se guardo, da click en el boton cerrar e intenta guardarlo nuevamente .</h5>"
-                                );
+                            pedidoEnviado = false;
+                            $("#guardar").removeAttr('disabled').text('Generar pedido');
+                            $(".modal-body").html("<h5>No se pudo contactar a SAE. Da click en el boton cerrar e intenta guardarlo nuevamente.</h5>");
                             $(".modal-footer").show();
                         });
                     @endif

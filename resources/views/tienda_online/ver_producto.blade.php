@@ -247,7 +247,11 @@
 
                                                                             
                                                                             $('.precio_real').html("$ "+parseFloat(precio * porcentaje).toFixed(2));
-                                                                            $('.existencia_real').html(parseInt(obj.existencia));
+                                                                            var existenciaFinal = parseInt(obj.existencia);
+                                                                            if ('{{ $producto->clave_proveedor ?? "" }}' === 'S227') existenciaFinal += 2;
+                                                                            obj.existencia = existenciaFinal;
+                                                                            producto_partida.existencia = existenciaFinal;
+                                                                            $('.existencia_real').html(existenciaFinal);
                                                                             $('.notas_precio').html(notas);
 
                                                                             var spinner = jQuery(this),

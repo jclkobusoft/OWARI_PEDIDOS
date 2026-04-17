@@ -46,28 +46,37 @@
                                         </thead>
                                         <tbody>
                                             @foreach ($pedidos as $pedido)
+                                                @php $esSyd = !empty($pedido->es_syd); @endphp
                                                 <tr>
-                                                    <td class="enlace_pedido" data-pedido="{{ $pedido->id }}">
-                                                        <b>{{ $pedido->pedido_sae }}</b></td>
-                                                    <td class="enlace_pedido" data-pedido="{{ $pedido->id }}">
-                                                        {{ $pedido->estado }}</td>
-                                                    <td class="enlace_pedido" data-pedido="{{ $pedido->id }}">
+                                                    <td class="{{ $esSyd ? 'enlace_pedido_especial' : 'enlace_pedido' }}" data-pedido="{{ $pedido->id }}">
+                                                        <b>{{ $esSyd ? ('EN PROCESO') : $pedido->pedido_sae }}</b></td>
+                                                    <td class="{{ $esSyd ? 'enlace_pedido_especial' : 'enlace_pedido' }}" data-pedido="{{ $pedido->id }}">
+                                                        {{ $esSyd ? 'EN PROCESO' : $pedido->estado }}</td>
+                                                    <td class="{{ $esSyd ? 'enlace_pedido_especial' : 'enlace_pedido' }}" data-pedido="{{ $pedido->id }}">
                                                         {{ \Carbon::createFromFormat('Y-m-d H:i:s', $pedido->created_at)->format('d/m/Y h:i A') }}
                                                     </td>
-                                                    <td class="enlace_pedido" data-pedido="{{ $pedido->id }}">
+                                                    <td class="{{ $esSyd ? 'enlace_pedido_especial' : 'enlace_pedido' }}" data-pedido="{{ $pedido->id }}">
                                                         {{ count($pedido->partidas) }}</td>
-                                                    <td class="enlace_pedido" data-pedido="{{ $pedido->id }}"
+                                                    <td class="{{ $esSyd ? 'enlace_pedido_especial' : 'enlace_pedido' }}" data-pedido="{{ $pedido->id }}"
                                                         align="right">${{ number_format($pedido->gran_total, 2, '.', ',') }}
                                                     </td>
                                                     <td align="center">
-                                                        <button class="ver_pdf btn-primary"
-                                                            style="color:white; background-color:rgb(43,57,145);"
-                                                            data-pedido="{{ $pedido->id }}">Ver pedido PDF</button>
+                                                        @if(!$esSyd)
+                                                            <button class="ver_pdf btn-primary"
+                                                                style="color:white; background-color:rgb(43,57,145);"
+                                                                data-pedido="{{ $pedido->id }}">Ver pedido PDF</button>
+                                                        @else
+                                                            <span class="text-muted" style="font-size:12px;">En proceso</span>
+                                                        @endif
                                                     </td>
                                                     <td>
-                                                        <button class="revisar_factura btn-primary"
-                                                            style="color:white; background-color:#d31531;"
-                                                            data-pedido="{{ $pedido->pedido_sae }}">Revisar factura(s)</button>
+                                                        @if(!$esSyd)
+                                                            <button class="revisar_factura btn-primary"
+                                                                style="color:white; background-color:#d31531;"
+                                                                data-pedido="{{ $pedido->pedido_sae }}">Revisar factura(s)</button>
+                                                        @else
+                                                            <span class="text-muted" style="font-size:12px;">N/A</span>
+                                                        @endif
                                                     </td>
                                                 </tr>
                                             @endforeach

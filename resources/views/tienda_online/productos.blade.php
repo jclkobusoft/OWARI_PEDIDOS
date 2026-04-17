@@ -199,7 +199,9 @@
                                                                                 notas += '<br><b style="color:red">Incluye costo de envio</b>';
 
                                                                             $('.precio_real_{{ $key }}').html("$ "+parseFloat(precio * porcentaje).toFixed(2));
-                                                                            $('.existencia_real_{{ $key }}').html(parseInt(obj.existencia));
+                                                                            var existenciaFinal = parseInt(obj.existencia);
+                                                                            if ('{{ $resultado->clave_proveedor ?? "" }}' === 'S227') existenciaFinal += 2;
+                                                                            $('.existencia_real_{{ $key }}').html(existenciaFinal);
                                                                             $('.notas_precio_{{ $key }}').html(notas);
 
                                                                             

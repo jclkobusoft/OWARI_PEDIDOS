@@ -335,11 +335,13 @@ class TiendaOnlineController extends Controller
                 COALESCE(ppr.precio, 0) as precio_final,
                 0 as minimo_compra_oferta,
                 COALESCE(p.prioridad, 0) as ventas,
-                p.id as producto_id
+                p.id as producto_id,
+                COALESCE(prov.clave, '') as clave_proveedor
             FROM productos p
             LEFT JOIN productos_web pw ON p.id = pw.id_producto AND pw.deleted_at IS NULL
             LEFT JOIN marcas m ON p.id_marca = m.id AND m.deleted_at IS NULL
             LEFT JOIN productos_precios ppr ON p.id = ppr.id_producto AND ppr.id_lista_precios = 1 AND ppr.id_sucursal = 1 AND ppr.deleted_at IS NULL
+            LEFT JOIN proveedores prov ON p.id_proveedor = prov.id AND prov.deleted_at IS NULL
             WHERE p.clave = ? AND p.deleted_at IS NULL
             LIMIT 1
         ", [$clave]);
@@ -515,12 +517,14 @@ class TiendaOnlineController extends Controller
                 0 as existencias,
                 '' as especial,
                 '' as disponibilidad,
-                p.id as producto_id
+                p.id as producto_id,
+                COALESCE(prov.clave, '') as clave_proveedor
             FROM productos_busqueda pb
             INNER JOIN productos p ON pb.producto_id = p.id
             LEFT JOIN productos_web pw ON p.id = pw.id_producto AND pw.deleted_at IS NULL
             LEFT JOIN marcas m ON p.id_marca = m.id AND m.deleted_at IS NULL
-            LEFT JOIN productos_precios ppr ON p.id = ppr.id_producto AND ppr.id_lista_precios = 1 AND ppr.id_sucursal = 1 AND ppr.deleted_at IS NULL";
+            LEFT JOIN productos_precios ppr ON p.id = ppr.id_producto AND ppr.id_lista_precios = 1 AND ppr.id_sucursal = 1 AND ppr.deleted_at IS NULL
+            LEFT JOIN proveedores prov ON p.id_proveedor = prov.id AND prov.deleted_at IS NULL";
 
         switch ($tipo_query) {
 
@@ -606,11 +610,13 @@ class TiendaOnlineController extends Controller
                 p.clave as codigo_nikko, m.nombre as marca_comercial,
                 pw.grupo, pw.subgrupo, pw.descripcion_1, pw.descripcion_2, pw.descripcion_3,
                 pw.caracteristicas_1, pw.caracteristicas_2, pw.caracteristicas_3, pw.caracteristicas_4,
-                COALESCE(ppr.precio, 0) as precio_normal, p.id as producto_id
+                COALESCE(ppr.precio, 0) as precio_normal, p.id as producto_id,
+                COALESCE(prov.clave, '') as clave_proveedor
             FROM productos p
             LEFT JOIN productos_web pw ON p.id = pw.id_producto AND pw.deleted_at IS NULL
             LEFT JOIN marcas m ON p.id_marca = m.id AND m.deleted_at IS NULL
             LEFT JOIN productos_precios ppr ON p.id = ppr.id_producto AND ppr.id_lista_precios = 1 AND ppr.id_sucursal = 1 AND ppr.deleted_at IS NULL
+            LEFT JOIN proveedores prov ON p.id_proveedor = prov.id AND prov.deleted_at IS NULL
             WHERE p.clave IN ({$ph}) AND p.deleted_at IS NULL
             ORDER BY p.clave
         ", array_values($claves));
@@ -701,11 +707,13 @@ class TiendaOnlineController extends Controller
                     pw.caracteristicas_4,
                     COALESCE(ppr.precio, 0) as precio_normal,
                     COALESCE(p.prioridad, 0) as ventas,
-                    p.id as producto_id
+                    p.id as producto_id,
+                    COALESCE(prov.clave, '') as clave_proveedor
                 FROM productos p
                 LEFT JOIN productos_web pw ON p.id = pw.id_producto AND pw.deleted_at IS NULL
                 LEFT JOIN marcas m ON p.id_marca = m.id AND m.deleted_at IS NULL
                 LEFT JOIN productos_precios ppr ON p.id = ppr.id_producto AND ppr.id_lista_precios = 1 AND ppr.id_sucursal = 1 AND ppr.deleted_at IS NULL
+                LEFT JOIN proveedores prov ON p.id_proveedor = prov.id AND prov.deleted_at IS NULL
                 WHERE p.clave IN ({$placeholders}) AND p.deleted_at IS NULL
                 ORDER BY p.clave
             ", $favoritos);
@@ -890,8 +898,14 @@ class TiendaOnlineController extends Controller
                 curl_close($ch);
                 $existencias_reales = json_decode($data, true);
 
+                // Guardar SIEMPRE la existencia real (sin +2) para usar en la division S227
+                $existenciaRealSae = intval($existencias_reales['existencia'] ?? 0);
+                $productos[$key]['existencia_real_sae'] = $existenciaRealSae;
 
-
+                // Si el producto es S227, sumar 2 unidades ficticias para validar stock visual
+                if (!empty($value['clave_proveedor']) && $value['clave_proveedor'] === 'S227') {
+                    $existencias_reales['existencia'] = $existenciaRealSae + 2;
+                }
 
 
 
@@ -1092,12 +1106,20 @@ class TiendaOnlineController extends Controller
     public function guardadoExitoso(Request $r)
     {
         extract($r->all());
-        $pedido = PedidoWeb::find($id_pedido);
-        if ($pedido->cliente != \Auth::user()->clave_cliente)
+        $tipo = $r->input('tipo', '');
+        $pedido = null;
+
+        if ($tipo === 'especial') {
+            $pedido = PedidoEspecial::find($id_pedido);
+        } else {
+            $pedido = PedidoWeb::find($id_pedido);
+        }
+
+        if (!$pedido || $pedido->cliente != \Auth::user()->clave_cliente)
             return redirect()->route('tienda_online.dashboard');
 
 
-        session()->forget(['cart', 'cartEspecial']); // o ['cart', 'cart.items', 'cart_count']
+        session()->forget(['cart', 'cartEspecial']);
         session()->save();
 
         $titulo = "Carrito exitoso";
@@ -1109,9 +1131,45 @@ class TiendaOnlineController extends Controller
     {
         $titulo = "Pedidos";
         $pedidos = PedidoWeb::where('cliente', \Auth::user()->clave_cliente)->where('created_at', '>=', '2025-01-01')->orderBy('created_at', 'desc')->limit(30)->get();
-        $pedidos_especiales = PedidoEspecial::where('cliente', \Auth::user()->clave_cliente)->where('created_at', '>=', '2025-01-01')->limit(30)->orderBy('created_at', 'desc')->get();
 
-        $pedidos_sae = $pedidos->pluck('pedido_sae')->toArray();
+        // Pedidos especiales normales (sin clave_proveedor o distinto de S227)
+        $pedidos_especiales = PedidoEspecial::where('cliente', \Auth::user()->clave_cliente)
+            ->where('created_at', '>=', '2025-01-01')
+            ->where(function($q) { $q->whereNull('clave_proveedor')->orWhere('clave_proveedor', '!=', 'S227'); })
+            ->limit(30)
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        // Pedidos especiales SYD (se muestran junto a pedidos normales)
+        $pedidos_syd = PedidoEspecial::where('cliente', \Auth::user()->clave_cliente)
+            ->where('created_at', '>=', '2025-01-01')
+            ->where('clave_proveedor', 'S227')
+            ->orderBy('created_at', 'desc')
+            ->limit(30)
+            ->get();
+
+        // Adaptar SYD al formato de PedidoWeb y combinar con la lista de pedidos normales
+        $pedidos_syd_formateados = $pedidos_syd->map(function($esp) {
+            $obj = new \stdClass();
+            $obj->id = $esp->id;
+            $obj->pedido_sae = 'SYD-' . $esp->id;
+            $obj->estado = 'EN PROCESO';
+            $obj->created_at = $esp->created_at;
+            $obj->partidas = $esp->partidas;
+            $obj->gran_total = $esp->gran_total;
+            $obj->es_syd = true;
+            return $obj;
+        });
+
+        // Marcar pedidos normales
+        $pedidos = $pedidos->map(function($p) {
+            $p->es_syd = false;
+            return $p;
+        });
+
+        $pedidos = $pedidos->concat($pedidos_syd_formateados)->sortByDesc('created_at')->values();
+
+        $pedidos_sae = $pedidos->where('es_syd', false)->pluck('pedido_sae')->toArray();
         $pedidos_especiales_sae = PedidoEspecialSae::where('cliente', \Auth::user()->clave_cliente)->orderBy('created_at', 'desc')->limit(30)->get()->pluck('pedido_sae')->toArray();
         $no_pedidos = array_merge($pedidos_sae, $pedidos_especiales_sae);
 
@@ -1399,11 +1457,13 @@ class TiendaOnlineController extends Controller
                     pw.caracteristicas_1, pw.caracteristicas_2, pw.caracteristicas_3, pw.caracteristicas_4,
                     COALESCE(ppr.precio, 0) as precio_normal,
                     COALESCE(p.prioridad, 0) as ventas,
-                    p.id as producto_id
+                    p.id as producto_id,
+                    COALESCE(prov.clave, '') as clave_proveedor
                 FROM productos p
                 LEFT JOIN productos_web pw ON p.id = pw.id_producto AND pw.deleted_at IS NULL
                 LEFT JOIN marcas m ON p.id_marca = m.id AND m.deleted_at IS NULL
                 LEFT JOIN productos_precios ppr ON p.id = ppr.id_producto AND ppr.id_lista_precios = 1 AND ppr.id_sucursal = 1 AND ppr.deleted_at IS NULL
+                LEFT JOIN proveedores prov ON p.id_proveedor = prov.id AND prov.deleted_at IS NULL
                 WHERE p.clave IN ({$placeholders}) AND p.deleted_at IS NULL
                 ORDER BY p.clave
             ", $data);
@@ -1773,8 +1833,14 @@ class TiendaOnlineController extends Controller
                 curl_close($ch);
                 $existencias_reales = json_decode($data, true);
 
+                // Guardar SIEMPRE la existencia real (sin +2) para usar en la division S227
+                $existenciaRealSae = intval($existencias_reales['existencia'] ?? 0);
+                $productos[$key]['existencia_real_sae'] = $existenciaRealSae;
 
-
+                // Si el producto es S227, sumar 2 unidades ficticias para validar stock visual
+                if (!empty($value['clave_proveedor']) && $value['clave_proveedor'] === 'S227') {
+                    $existencias_reales['existencia'] = $existenciaRealSae + 2;
+                }
 
 
 

@@ -245,11 +245,15 @@ class PedidosController extends Controller
         curl_close($ch);
         $info_cliente = json_decode($data,true);
 
+        $clave_proveedor_especial = $r->input('clave_proveedor');
+        $clave_proveedor_especial = ($clave_proveedor_especial && trim($clave_proveedor_especial) !== '') ? trim($clave_proveedor_especial) : null;
+
         $data = [
             'cliente' => $clave_cliente,
             'gran_total' => floatval("0.00"),
             'cadena_original' => strval(json_encode($r->all())),
-            'capturo' => \Auth::user()->id
+            'capturo' => \Auth::user()->id,
+            'clave_proveedor' => $clave_proveedor_especial,
         ];
         $pedido = PedidoEspecial::create($data);
 
@@ -299,7 +303,7 @@ class PedidosController extends Controller
                 'proveedor' => $provData ? $provData->proveedor : 'Desconocido',
                 'precio_unitario' => floatval($value['precio']),
                 'gran_total' => floatval($value['total']),
-                'sae' => $value['sae'],
+                'sae' => $value['sae'] ?? '',
                 'elaboro' => $elaboro
             ]);
             PedidoEspecialPartida::create($data);
@@ -317,15 +321,23 @@ class PedidosController extends Controller
 
 
 
-         \Mail::send('emails.pedido_especial', compact('pedido','info_cliente'), function ($message) use ($pedido,$archivo){
-                $message->from('pedido_especial@owari.com.mx', 'Pedido Especial');
-                $message->subject("Pedido especial ".$pedido->id);
+         $esSYD = $pedido->clave_proveedor == 'S227';
+         $subjectMail = $esSYD ? ("Pedido especial SYD ".$pedido->id) : ("Pedido especial ".$pedido->id);
+         $fromName = $esSYD ? 'Pedido Especial SYD' : 'Pedido Especial';
+
+         \Mail::send('emails.pedido_especial', compact('pedido','info_cliente'), function ($message) use ($pedido,$archivo,$subjectMail,$fromName){
+                $message->from('pedido_especial@owari.com.mx', $fromName);
+                $message->subject($subjectMail);
                 $message->attach(storage_path()."/app/pedidos_especiales/".$archivo);
                 $message->to(['direccion@owari.com.mx','ventas2@owari.com.mx','ventas3@owari.com.mx','compras@owari.com.mx']);
             });
 
 
-            \Session::put('cartEspecial', []);
+            if (!$esSYD) {
+                \Session::put('cartEspecial', []);
+            }
+            // Nota: para SYD no tocamos el cart aqui (evitar race condition).
+            // El frontend se encarga de limpiar cart con vaciar_carrito al finalizar.
 
 
         return json_encode([

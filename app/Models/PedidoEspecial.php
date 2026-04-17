@@ -19,6 +19,7 @@ class PedidoEspecial extends Model
        'gran_total',
        'cadena_original',
        'capturo',
+       'clave_proveedor',
      ];
 
      public function partidas()

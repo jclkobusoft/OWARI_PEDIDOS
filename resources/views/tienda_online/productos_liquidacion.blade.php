@@ -176,7 +176,9 @@
                                                                             } else {precio = obj.descuentos[0].precio_lista;precio_iva = obj.descuentos[0].precio_iva; }
 
                                                                             $('.precio_real_{{ $key }}').html("$ "+parseFloat(precio * porcentaje).toFixed(2));
-                                                                            $('.existencia_real_{{ $key }}').html(parseInt(obj.existencia));
+                                                                            var existenciaFinal = parseInt(obj.existencia);
+                                                                            if ('{{ $resultado->clave_proveedor ?? "" }}' === 'S227') existenciaFinal += 2;
+                                                                            $('.existencia_real_{{ $key }}').html(existenciaFinal);
                                                                             $('.notas_precio_{{ $key }}').html(notas);
 
                                                                             if(obj.cliente=="N/A"){
