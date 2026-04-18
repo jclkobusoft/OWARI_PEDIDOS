@@ -232,6 +232,10 @@
         var total_pedidos = 0;
         var partidas_especiales = [];
         var special_price = 0;
+        // Mapa codigo -> cantidad que es SYD dentro de table_partidas.
+        // table_partidas muestra la cantidad TOTAL (normal + SYD) como si fuera un solo pedido.
+        // Este mapa permite, al guardar, separar las partidas SYD hacia el pedido especial S227.
+        var partidas_syd_map = {};
 
 
         $("#palabras_clave").focus(function (e) {
@@ -264,7 +268,7 @@
             }
             if (["Enter"].indexOf(e.code) > -1 && seleccion && e.target.id != "cantidad") {
                 console.log(e);
-                buscarProducto(clave_cliente, fila_seleccionada.getData().codigo, 1, fila_seleccionada.getData().equivalencias);
+                buscarProducto(clave_cliente, fila_seleccionada.getData().codigo, 1, fila_seleccionada.getData().equivalencias, fila_seleccionada.getData().precio_normal, fila_seleccionada.getData().clave_proveedor);
                 e.preventDefault();
             }
             if (e.key === 'b' && e.ctrlKey) {
@@ -321,7 +325,7 @@
             $("#galeria").html('');
             reiniciarCantidad();
             special_price = fila_seleccionada.getData().precio_normal
-            buscarProducto(clave_cliente, fila_seleccionada.getData().codigo, 1, fila_seleccionada.getData().equivalencias, fila_seleccionada.getData().precio_normal);
+            buscarProducto(clave_cliente, fila_seleccionada.getData().codigo, 1, fila_seleccionada.getData().equivalencias, fila_seleccionada.getData().precio_normal, fila_seleccionada.getData().clave_proveedor);
         });
 
 
@@ -445,8 +449,11 @@
 
 
         function agregarPartida(cantidad) {
+            cantidad = parseInt(cantidad);
 
             var disponible = fila_seleccionada.getData().disponibilidad;
+            var claveProveedor = fila_seleccionada.getData().clave_proveedor || '';
+            var esSYD = (claveProveedor === 'S227');
             console.log(disponible);
             var ya_existe = false;
             var obj = producto_partida;
@@ -462,8 +469,22 @@
                 return false;
             }
 
-            let a_especial = 0
-            if (cantidad > obj.existencia) {
+            let a_especial = 0;
+            let a_syd = 0;
+
+            if (esSYD) {
+                // Proveedor S227: existencia real = obj.existencia - 2 (las 2 ficticias siempre se agregan)
+                var existenciaReal = parseInt(obj.existencia || 0) - 2;
+                if (existenciaReal < 0) existenciaReal = 0;
+
+                if (cantidad > existenciaReal) {
+                    // Todo lo que excede la existencia real va a SYD (nunca a especial tradicional).
+                    // Se agrega como partida normal a la UI, pero el mapa interno marca cuanto es SYD.
+                    a_syd = cantidad - existenciaReal;
+                    cantidad = existenciaReal;
+                }
+                // Para S227 NUNCA se llena a_especial (no hay pedido especial tradicional)
+            } else if (cantidad > obj.existencia) {
 
                 if (disponible != 'agotado') {
                     if (obj.cliente == "N/A") {
@@ -575,23 +596,36 @@
                 actualizarGranTotalEspeciales();
             }
 
-            if (cantidad > 0) {
+            // Cantidad que se muestra en table_partidas (total visible para el vendedor).
+            // Para S227 puede ser cantidad_real + a_syd; para el resto es solo cantidad.
+            var cantidad_total_partida = parseInt(cantidad) + parseInt(a_syd);
+
+            if (cantidad_total_partida > 0) {
                 console.log(partidas);
                 $.each(partidas, function (i, v) {
                     if (v.clave == producto_partida.clave) {
                         if (confirm("Este producto ya fue capturado, presiona OK para sumarle esta cantidad o presiona Cancelar para sustituir.")) {
 
-                            var cantidad_final = parseInt(cantidad);
+                            var cantidad_final = parseInt(cantidad_total_partida);
                             var total_partidas = table_partidas.getData();
                             $.each(total_partidas, function (j, k) {
                                 if (k.codigo == v.clave)
                                     cantidad_final += parseInt(k.cantidad)
                             });
                             actualizarPrecio(cantidad_final, producto_partida.clave);
+                            // SYD: sumar al mapa existente (acumular)
+                            if (a_syd > 0) {
+                                partidas_syd_map[producto_partida.clave] = (partidas_syd_map[producto_partida.clave] || 0) + a_syd;
+                            }
                         }
                         else {
-                            actualizarPrecio(cantidad, producto_partida.clave);
-
+                            actualizarPrecio(cantidad_total_partida, producto_partida.clave);
+                            // SYD: sustituir el mapa con el nuevo valor
+                            if (a_syd > 0) {
+                                partidas_syd_map[producto_partida.clave] = a_syd;
+                            } else {
+                                delete partidas_syd_map[producto_partida.clave];
+                            }
                         }
                         ya_existe = true;
                         return false;
@@ -615,9 +649,7 @@
                                 break;
                             } else {
                                 //console.log('si tiene cantidad');
-                                //console.log("Minimas: "+obj.descuentos[i].unidades_minimas)
-                                //console.log("Pido: "+ cantidad)
-                                if (parseInt(obj.descuentos[i].unidades_minimas) <= parseInt(cantidad)) {
+                                if (parseInt(obj.descuentos[i].unidades_minimas) <= parseInt(cantidad_total_partida)) {
                                     console.log("hay unidades y cubrimos");
                                     precio = obj.descuentos[i].precio_lista;
                                     precio_iva = obj.descuentos[i].precio_iva;
@@ -633,12 +665,19 @@
                 table_partidas.addData([{
                     "codigo": obj.clave,
                     "descripcion": obj.name,
-                    "cantidad": cantidad,
+                    "cantidad": cantidad_total_partida,
                     "precio": parseFloat(precio).toFixed(2),
                     "precio_iva": parseFloat(precio_iva).toFixed(2),
-                    "total": (cantidad * precio).toFixed(2)
+                    "total": (cantidad_total_partida * precio).toFixed(2)
                 }]);
                 partidas.push(obj);
+
+                // SYD: registrar cuantas unidades de esta partida son SYD (no van a SAE,
+                // iran a pedido especial S227 al momento de guardar)
+                if (a_syd > 0) {
+                    partidas_syd_map[obj.clave] = a_syd;
+                }
+
                 setTimeout(() => {
                     $("#galeria").html('')
                     $('#detalles_producto').hide();
@@ -744,7 +783,8 @@
                             "equivalencias": equivalencias,
                             "buscar": val.buscador,
                             'precio_normal': val.precio_normal,
-                            'disponibilidad': val.disponibilidad
+                            'disponibilidad': val.disponibilidad,
+                            'clave_proveedor': val.clave_proveedor || ''
 
                         });
                     });
@@ -760,7 +800,7 @@
             );
         }
 
-        function buscarProducto($cliente, $clave, $cantidad, $equivalencias, $precio_normal) {
+        function buscarProducto($cliente, $clave, $cantidad, $equivalencias, $precio_normal, $clave_proveedor) {
             $.get(
                 "https://sistemasowari.com:8443/catalowari/api/empresa_buscar_producto_vendedores",
                 { cliente: $cliente, clave: $clave, tipo: $("input:radio[name ='tipo_pedido']:checked").val() },
@@ -772,6 +812,10 @@
                         return false;
                     }
 
+                    // Proveedor S227 (SYD): sumar 2 unidades ficticias al stock real
+                    if ($clave_proveedor === 'S227') {
+                        obj.existencia = parseInt(obj.existencia || 0) + 2;
+                    }
 
                     producto_partida = obj;
                     if (obj.cliente == "N/A")
@@ -1161,7 +1205,36 @@
             var partidas_formulario = table_partidas.getData();
             var partidas_formulario_especial = table_partidas_especiales.getData();
 
-            if (partidas_formulario.length <= 0 && partidas_formulario_especial.length <= 0) {
+            // Separar SYD del resto antes de cualquier validacion o flujo
+            var partidas_syd_finales = [];
+            var partidas_formulario_sae = [];
+            for (var i = 0; i < partidas_formulario.length; i++) {
+                var p = Object.assign({}, partidas_formulario[i]);
+                var codigo = p.codigo;
+                var cantSyd = parseInt(partidas_syd_map[codigo] || 0);
+                if (cantSyd > 0) {
+                    var precioNum = parseFloat(p.precio);
+                    partidas_syd_finales.push({
+                        codigo: codigo,
+                        descripcion: p.descripcion,
+                        cantidad: cantSyd,
+                        precio: p.precio,
+                        precio_iva: p.precio_iva,
+                        total: (cantSyd * precioNum).toFixed(2)
+                    });
+                    var cantidadNormal = parseInt(p.cantidad) - cantSyd;
+                    if (cantidadNormal > 0) {
+                        p.cantidad = cantidadNormal;
+                        p.total = (cantidadNormal * precioNum).toFixed(2);
+                        partidas_formulario_sae.push(p);
+                    }
+                } else {
+                    partidas_formulario_sae.push(p);
+                }
+            }
+            partidas_formulario = partidas_formulario_sae;
+
+            if (partidas_formulario.length <= 0 && partidas_formulario_especial.length <= 0 && partidas_syd_finales.length <= 0) {
                 alertas += "<h5>Ingresa por lo menos una partida en el pedido</h5>";
                 $(".texto_modal").html(alertas);
                 $("#modal").modal("show");
@@ -1219,6 +1292,17 @@
                     },
                     "json"
                 );
+            }
+
+            // Enviar pedido especial SYD (bandera proveedor S227) si aplica
+            if (partidas_syd_finales.length > 0) {
+                var dataSYD = {
+                    cliente: clientes[$("#cliente").val()],
+                    '_token': "{{ csrf_token() }}",
+                    partidas: partidas_syd_finales,
+                    clave_proveedor: 'S227'
+                };
+                $.post("{{ route('pedidos.guardar_especial') }}", dataSYD, function (res) { }, "json");
             }
 
 
