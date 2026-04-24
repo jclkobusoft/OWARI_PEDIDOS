@@ -455,7 +455,8 @@
                                                             "precio": parseFloat(precio).toFixed(2),
                                                             "precio_iva": parseFloat(precio_iva).toFixed(2),
                                                             "total": (cantidad * precio).toFixed(2),
-                                                            "sae": obj.cliente == "N/A" ? "NO ESTA EN SAE" : 'EN SAE'
+                                                            "sae": obj.cliente == "N/A" ? "NO ESTA EN SAE" : 'EN SAE',
+                                                            "clave_proveedor": '{{ data_get($producto, 'clave_proveedor', '') }}'
                                                         })
                                                         partidas_especiales.push(producto_partida);
 
@@ -884,6 +885,37 @@
                 }
                 partidas_finales = partidas_finales_ajustadas;
                 var partidas_formulario = partidas_finales;
+
+                // Mover partidas especiales S227 al pedido SYD (no van a especial tradicional)
+                var partidas_especiales_ajustadas = [];
+                for (var i = 0; i < partidas_especiales_finales.length; i++) {
+                    var pe = Object.assign({}, partidas_especiales_finales[i]);
+                    if (pe.clave_proveedor === 'S227') {
+                        partidas_syd_finales.push(pe);
+                    } else {
+                        partidas_especiales_ajustadas.push(pe);
+                    }
+                }
+                partidas_especiales_finales = partidas_especiales_ajustadas;
+
+                // Consolidar partidas SYD por codigo (sumar cantidades y totales de duplicados)
+                var sydPorCodigo = {};
+                for (var i = 0; i < partidas_syd_finales.length; i++) {
+                    var ps = partidas_syd_finales[i];
+                    var cod = ps.codigo;
+                    if (!sydPorCodigo[cod]) {
+                        sydPorCodigo[cod] = Object.assign({}, ps);
+                        sydPorCodigo[cod].cantidad = parseInt(ps.cantidad) || 0;
+                        sydPorCodigo[cod].total = parseFloat(ps.total) || 0;
+                    } else {
+                        sydPorCodigo[cod].cantidad += parseInt(ps.cantidad) || 0;
+                        sydPorCodigo[cod].total += parseFloat(ps.total) || 0;
+                    }
+                }
+                partidas_syd_finales = Object.values(sydPorCodigo).map(function(p){
+                    p.total = (parseFloat(p.total)).toFixed(2);
+                    return p;
+                });
 
                 function enviarSYD(onDone) {
                     if (partidas_syd_finales.length === 0) { onDone && onDone(null); return; }
