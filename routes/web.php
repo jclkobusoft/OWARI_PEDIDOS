@@ -49,6 +49,7 @@ Route::get('/pedidos/crear', [App\Http\Controllers\PedidosController::class, 'cr
 Route::get('/pedidos/busqueda', [App\Http\Controllers\PedidosController::class, 'apiBusqueda'])->name('pedidos.busqueda');
 Route::get('/pedidos/demo', [App\Http\Controllers\PedidosController::class, 'demo'])->name('pedidos.demo');
 Route::post('/pedidos/guardar', [App\Http\Controllers\PedidosController::class, 'guardar'])->name('pedidos.guardar');
+Route::post('/soma/capturar-proxy', [App\Http\Controllers\PedidosController::class, 'proxyCapturarSoma'])->name('soma.capturar_proxy');
 Route::post('pedidos/guardar_especial', [App\Http\Controllers\PedidosController::class, 'guardarPedidoEspecial'])->name('pedidos.guardar_especial');
 
 Route::post('pedidos/guardar_pedido_pendiente_web', [App\Http\Controllers\PedidosController::class, 'guardarPedidoPendienteWeb'])->name('pedidos.guardar_pedido_pendiente_web');

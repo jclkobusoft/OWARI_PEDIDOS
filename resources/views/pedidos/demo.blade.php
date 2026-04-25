@@ -1254,11 +1254,10 @@
                 pedidos_sae: sae_folios_acumulados
             };
             $.ajax({
-                url: '{{ config('services.somma.api_url') }}/api/pedidos/capturar',
+                url: '{{ route('soma.capturar_proxy') }}',
                 method: 'POST',
                 contentType: 'application/json',
                 data: JSON.stringify(payload),
-                headers: { 'X-API-Key': '{{ config('services.somma.api_key') }}' },
                 timeout: 30000
             }).fail(function (xhr) {
                 if (window.console) console.warn('SOMA capture fallo', xhr && xhr.status, xhr && xhr.responseText);

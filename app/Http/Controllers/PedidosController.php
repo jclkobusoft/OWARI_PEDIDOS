@@ -419,5 +419,46 @@ class PedidosController extends Controller
 
     }
 
+    /**
+     * Proxy server-side hacia SOMA /api/pedidos/capturar.
+     * Evita CORS y mantiene la API key fuera del navegador.
+     * Recibe el mismo payload que la API de SOMA y lo reenvía.
+     */
+    public function proxyCapturarSoma(Request $request)
+    {
+        $payload = $request->all();
+        unset($payload['_token']);
+
+        $url = rtrim(config('services.somma.api_url'), '/') . '/api/pedidos/capturar';
+        $apiKey = config('services.somma.api_key');
+
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => json_encode($payload),
+            CURLOPT_HTTPHEADER     => [
+                'Content-Type: application/json',
+                'Accept: application/json',
+                'X-API-Key: ' . $apiKey,
+            ],
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 30,
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYHOST => false,
+        ]);
+
+        $body = curl_exec($ch);
+        $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err = curl_error($ch);
+        curl_close($ch);
+
+        if ($body === false || $status === 0) {
+            \Log::warning('proxyCapturarSoma fallo: ' . $err);
+            return response()->json(['response' => 0, 'message' => 'Error de red al proxy SOMA: ' . $err], 502);
+        }
+
+        $decoded = json_decode($body, true);
+        return response()->json($decoded ?: ['response' => 0, 'message' => 'Respuesta SOMA no JSON', 'raw' => $body], $status);
+    }
 
 }
