@@ -662,6 +662,19 @@
                     }
                 } else { precio = obj.descuentos[0].precio_lista; precio_iva = obj.descuentos[0].precio_iva; }
 
+                // Fallback: si el producto no esta en SAE para el cliente o el precio resulta 0
+                // (ej. S227 con existencia 0), usar precio_normal del catalogo con clasificacion
+                if (obj.cliente == "N/A" || parseFloat(precio) <= 0) {
+                    var precioBase = parseFloat(fila_seleccionada.getData().precio_normal || obj.precio_publico || 0);
+                    if (precioBase > 0) {
+                        const first = obj?.clasificacion?.[0]?.toUpperCase?.() ?? '';
+                        const mapa = { A: 0.85, B: 0.9, C: 0.95 };
+                        const descuento = mapa[first] ?? 0.95;
+                        precio = precioBase * descuento * 1.16;
+                        precio_iva = precio / 1.16;
+                    }
+                }
+
                 table_partidas.addData([{
                     "codigo": obj.clave,
                     "descripcion": obj.name,
@@ -1380,70 +1393,25 @@
                             partidas_partidas_tres.push(auxiliar_tres);
                         });
 
+                        // ── Reset estado de captura SOMA paralela ──
+                        sae_folios_acumulados = [];
+                        soma_id_envio_externo = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+                            : ('env-' + Date.now() + '-' + Math.random().toString(36).slice(2));
+                        soma_partidas_crudas = partidas_formulario.map(function (p) {
+                            return { clave: p.codigo, cantidad: p.cantidad };
+                        });
+                        soma_total_origen = partidas_formulario.reduce(function (acc, p) {
+                            return acc + Number(p.total || 0);
+                        }, 0);
+                        soma_destino_sucursal = ($("input:radio[name='tipo_pedido']:checked").val() === 'factura') ? 'E01' : 'TODAS';
+
+                        // SAE en E01 (chunks)
                         partidas_partidas_uno.forEach(function (data, index) {
-                            console.log("INDICE 1: " + index)
-
-
-                            var partidas_soma_pedido = [];
-
-                            for (var i = 0; i < partidas_partidas_uno[index].length; i++) {
-                                partidas_soma_pedido.push({
-                                    "clave": partidas_partidas_uno[index][i].codigo,
-                                    "cantidad": partidas_partidas_uno[index][i].cantidad,
-                                    "precio": partidas_partidas_uno[index][i].precio,
-                                    "total": partidas_partidas_uno[index][i].total
-                                });
-                            }
-
-
-                            var soma_pedido = {
-                                "clave_cliente": clientes[$("#cliente").val()],
-                                "clave_sucursal": "E01",
-                                "tipo_serie": "P",
-                                "partidas": partidas_soma_pedido
-                            }
-
-                            $.post("https://owari.appsoma.online/somma/v2.0/pedidos/externo", soma_pedido,
-                                function (data, textStatus, jqXHR) {
-
-                                },
-                                "json"
-                            );
-
-
-
                             guardar_pedido_sae(1, index);
                         });
 
+                        // SAE en E03 (chunks)
                         partidas_partidas_tres.forEach(function (data, index) {
-                            console.log("INDICE 3: " + index)
-
-                            var partidas_soma_pedido = [];
-
-                            for (var i = 0; i < partidas_partidas_tres[index].length; i++) {
-                                partidas_soma_pedido.push({
-                                    "clave": partidas_partidas_tres[index][i].codigo,
-                                    "cantidad": partidas_partidas_tres[index][i].cantidad,
-                                    "precio": partidas_partidas_tres[index][i].precio,
-                                    "total": partidas_partidas_tres[index][i].total
-                                });
-                            }
-
-
-                            var soma_pedido = {
-                                "clave_cliente": clientes[$("#cliente").val()],
-                                "clave_sucursal": "E03",
-                                "tipo_serie": "P",
-                                "partidas": partidas_soma_pedido
-                            }
-
-                            $.post("https://owari.appsoma.online/somma/v2.0/pedidos/externo", soma_pedido,
-                                function (data, textStatus, jqXHR) {
-
-                                },
-                                "json"
-                            );
-
                             guardar_pedido_sae(3, index);
                         });
 
@@ -1485,6 +1453,44 @@
         var guardado_ok = 0;
         var desaparece = 0;
 
+        // ── Estado de captura paralela SOMA ──
+        var sae_folios_acumulados = [];
+        var soma_id_envio_externo = null;
+        var soma_partidas_crudas = [];
+        var soma_total_origen = 0;
+        var soma_destino_sucursal = 'TODAS';
+        var soma_capturado = false;
+
+        function dispararCapturaSoma() {
+            if (soma_capturado) return;
+            soma_capturado = true;
+
+            try {
+                var payload = {
+                    clave_cliente: clientes[$("#cliente").val()],
+                    partidas: soma_partidas_crudas,
+                    origen: 'CAPTURADOR',
+                    id_envio_externo: soma_id_envio_externo,
+                    destino_sucursal: soma_destino_sucursal,
+                    gran_total_origen: soma_total_origen,
+                    pedidos_sae: sae_folios_acumulados
+                };
+
+                $.ajax({
+                    url: '{{ config('services.somma.api_url') }}/api/pedidos/capturar',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify(payload),
+                    headers: { 'X-API-Key': '{{ config('services.somma.api_key') }}' },
+                    timeout: 30000
+                }).fail(function (xhr) {
+                    if (window.console) console.warn('SOMA capture fallo', xhr && xhr.status, xhr && xhr.responseText);
+                });
+            } catch (e) {
+                if (window.console) console.warn('SOMA capture excepcion', e);
+            }
+        }
+
         function guardar_pedido_sae(empresa, numero_index) {
             desaparece++;
             if (empresa == 1)
@@ -1511,6 +1517,20 @@
                         if (data.pedido != "N/A")
                             $("#guardar_pedido_" + empresa).append("<h5>Tu pedido " + (numero_index + 1) + " de E" + empresa + " fue el: " + data.pedido + "</h5>");
 
+                        // Acumular folio SAE para mandar a SOMA al final
+                        if (data.pedido && data.pedido != "N/A") {
+                            var totalChunk = 0;
+                            for (var k = 0; k < partidas_finales.length; k++) {
+                                totalChunk += Number(partidas_finales[k].total || 0);
+                            }
+                            sae_folios_acumulados.push({
+                                folio: data.pedido,
+                                sucursal_sae: empresa == 1 ? 'E01' : 'E03',
+                                gran_total: totalChunk,
+                                partidas: partidas_finales.length
+                            });
+                        }
+
                         guardado_ok++;
 
                         if (guardado_ok >= total_pedidos) {
@@ -1520,6 +1540,9 @@
                                 table_partidas.setData([]);
                                 location.reload();
                             });
+
+                            // Todos los SAE OK → disparar captura paralela en SOMA
+                            dispararCapturaSoma();
                         }
                     }
                     else {

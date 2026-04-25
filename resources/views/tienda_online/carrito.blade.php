@@ -1110,6 +1110,55 @@
                                     variables.pedido_sae = data.pedido;
                                     var folioSae = data.pedido;
 
+                                    // ── Captura paralela en SOMA (independiente, no bloqueante) ──
+                                    try {
+                                        var idEnvioExterno = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+                                            : ('env-' + Date.now() + '-' + Math.random().toString(36).slice(2));
+
+                                        var partidasParaSoma = [];
+                                        for (var i = 0; i < partidas_formulario.length; i++) {
+                                            partidasParaSoma.push({
+                                                clave: partidas_formulario[i].codigo,
+                                                cantidad: partidas_formulario[i].cantidad
+                                            });
+                                        }
+                                        for (var j = 0; j < partidas_especiales_finales.length; j++) {
+                                            partidasParaSoma.push({
+                                                clave: partidas_especiales_finales[j].codigo,
+                                                cantidad: partidas_especiales_finales[j].cantidad
+                                            });
+                                        }
+
+                                        var somaPayload = {
+                                            clave_cliente: '{{ \Auth::user()->clave_cliente }}',
+                                            partidas: partidasParaSoma,
+                                            origen: 'TIENDA_ONLINE',
+                                            id_envio_externo: idEnvioExterno,
+                                            destino_sucursal: 'E01',
+                                            gran_total_origen: gran_total + gran_total_especial,
+                                            pedidos_sae: [{
+                                                folio: folioSae,
+                                                sucursal_sae: 'E01',
+                                                gran_total: gran_total + gran_total_especial,
+                                                partidas: partidasParaSoma.length
+                                            }]
+                                        };
+
+                                        $.ajax({
+                                            url: '{{ config('services.somma.api_url') }}/api/pedidos/capturar',
+                                            method: 'POST',
+                                            contentType: 'application/json',
+                                            data: JSON.stringify(somaPayload),
+                                            headers: { 'X-API-Key': '{{ config('services.somma.api_key') }}' },
+                                            timeout: 30000
+                                        }).fail(function (xhr) {
+                                            if (window.console) console.warn('SOMA capture fallo', xhr && xhr.status, xhr && xhr.responseText);
+                                        });
+                                    } catch (e) {
+                                        if (window.console) console.warn('SOMA capture excepcion', e);
+                                    }
+                                    // ── Fin captura paralela SOMA ──
+
                                     var mensajeErrorPostSAE = function(detalle) {
                                         $(".modal-body").html(
                                             "<div style='text-align:left;'>" +

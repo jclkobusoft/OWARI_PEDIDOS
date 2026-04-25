@@ -1171,6 +1171,19 @@
                                 partidas_partidas_tres.push(auxiliar_tres);
                      });
 
+                     // ── Reset estado de captura SOMA paralela ──
+                     sae_folios_acumulados = [];
+                     soma_id_envio_externo = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+                         : ('env-' + Date.now() + '-' + Math.random().toString(36).slice(2));
+                     soma_partidas_crudas = partidas_formulario.map(function (p) {
+                         return { clave: p.codigo, cantidad: p.cantidad };
+                     });
+                     soma_total_origen = partidas_formulario.reduce(function (acc, p) {
+                         return acc + Number(p.total || 0);
+                     }, 0);
+                     soma_destino_sucursal = ($("input:radio[name='tipo_pedido']:checked").val() === 'factura') ? 'E01' : 'TODAS';
+                     soma_capturado = false;
+
                      partidas_partidas_uno.forEach(function(data,index){
                         console.log("INDICE 1: "+index)
                         guardar_pedido_sae(1,index);
@@ -1219,6 +1232,42 @@
     var guardado_ok = 0;
     var desaparece = 0;
 
+    // ── Estado de captura paralela SOMA ──
+    var sae_folios_acumulados = [];
+    var soma_id_envio_externo = null;
+    var soma_partidas_crudas = [];
+    var soma_total_origen = 0;
+    var soma_destino_sucursal = 'TODAS';
+    var soma_capturado = false;
+
+    function dispararCapturaSoma(){
+        if (soma_capturado) return;
+        soma_capturado = true;
+        try {
+            var payload = {
+                clave_cliente: clientes[$("#cliente").val()],
+                partidas: soma_partidas_crudas,
+                origen: 'CAPTURADOR',
+                id_envio_externo: soma_id_envio_externo,
+                destino_sucursal: soma_destino_sucursal,
+                gran_total_origen: soma_total_origen,
+                pedidos_sae: sae_folios_acumulados
+            };
+            $.ajax({
+                url: '{{ config('services.somma.api_url') }}/api/pedidos/capturar',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify(payload),
+                headers: { 'X-API-Key': '{{ config('services.somma.api_key') }}' },
+                timeout: 30000
+            }).fail(function (xhr) {
+                if (window.console) console.warn('SOMA capture fallo', xhr && xhr.status, xhr && xhr.responseText);
+            });
+        } catch (e) {
+            if (window.console) console.warn('SOMA capture excepcion', e);
+        }
+    }
+
     function guardar_pedido_sae(empresa,numero_index){
         desaparece++;
         if(empresa == 1)
@@ -1238,12 +1287,25 @@
         };
 
         console.log(partidas_finales);
-    
+
         $.post("https://sistemasowari.com:8443/catalowari/api/guardar", data,
             function (data, textStatus, jqXHR) {
                 if(data.code){
                     if(data.pedido != "N/A")
                         $("#guardar_pedido_"+empresa).append("<h5>Tu pedido "+(numero_index + 1)+" de E"+empresa+" fue el: "+data.pedido+"</h5>");
+
+                    if (data.pedido && data.pedido != "N/A") {
+                        var totalChunk = 0;
+                        for (var k = 0; k < partidas_finales.length; k++) {
+                            totalChunk += Number(partidas_finales[k].total || 0);
+                        }
+                        sae_folios_acumulados.push({
+                            folio: data.pedido,
+                            sucursal_sae: empresa == 1 ? 'E01' : 'E03',
+                            gran_total: totalChunk,
+                            partidas: partidas_finales.length
+                        });
+                    }
 
                     guardado_ok++;
 
@@ -1253,6 +1315,7 @@
                             e.preventDefault();
                             location.reload();
                         });
+                        dispararCapturaSoma();
                     }
                 }
                 else{
