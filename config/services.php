@@ -31,4 +31,10 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    // API de SOMA — captura paralela de pedidos para comparativo
+    'somma' => [
+        'api_url' => env('SOMMA_API_URL', 'https://owari.appsoma.online/somma/v2.0'),
+        'api_key' => env('SOMMA_API_KEY'),
+    ],
+
 ];
