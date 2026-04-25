@@ -261,6 +261,8 @@
                                                                 "precio_iva": parseFloat(precio_iva).toFixed(2),
                                                                 "total": (cantidad * precio).toFixed(2),
                                                                 "existencia_sae": existenciaSae,
+                                                                "existencia_factura": parseInt(obj.existencia_factura),
+                                                                "existencia_remision": parseInt(obj.existencia_remision),
                                                                 "clave_proveedor": '{{ data_get($producto, 'clave_proveedor', '') }}'
                                                             })
                                                             partidas.push(producto_partida);
@@ -456,6 +458,8 @@
                                                             "precio_iva": parseFloat(precio_iva).toFixed(2),
                                                             "total": (cantidad * precio).toFixed(2),
                                                             "sae": obj.cliente == "N/A" ? "NO ESTA EN SAE" : 'EN SAE',
+                                                            "existencia_factura": parseInt(obj.existencia_factura),
+                                                            "existencia_remision": parseInt(obj.existencia_remision),
                                                             "clave_proveedor": '{{ data_get($producto, 'clave_proveedor', '') }}'
                                                         })
                                                         partidas_especiales.push(producto_partida);
@@ -853,6 +857,796 @@
                     window.location.reload();
                 });
             });
+
+
+            // ════════════════════════════════════════════════════════════════════
+            // NUEVO FLUJO DE GUARDADO (refactor en construccion)
+            // ════════════════════════════════════════════════════════════════════
+            // El click en #guardar SIGUE invocando guardar_pedido() (viejo).
+            // Cuando el v2 este completo y validado, se cambia el handler y se
+            // borra el viejo. Mientras tanto, ambos coexisten.
+            //
+            // Para probar el v2 desde la consola del navegador:
+            //   guardar_pedido_v2()
+            //
+            // Estructura del v2:
+            //   guardar_pedido_v2()              ← orquestador (async/await)
+            //     ├── validarFormulario()
+            //     ├── obtenerClienteSae()
+            //     ├── capturarEnSoma()           (no bloqueante, fire-and-forget)
+            //     ├── separarPartidas()          ← usa PROVEEDORES_ESPECIALES
+            //     ├── consultarRegalo()
+            //     ├── guardarEspecialesGenerales()
+            //     ├── guardarEspecialesSyd()
+            //     ├── clasificarPorEmpresa()     ← regla del W en pos.4 de CLASIFIC
+            //     ├── insertarEnSaeConRetry()    (x2: factura y/o remision)
+            //     ├── guardarPedidoWebLocal()
+            //     └── redirigirExito()
+            //
+            // Helpers UI:    mostrarCargando, mostrarError, redirigirExito
+            // Helpers datos: todasLasPartidas, cargarProveedoresEspeciales
+            // ════════════════════════════════════════════════════════════════════
+
+            // Catalogo de proveedores especiales (cargado al iniciar la pagina).
+            // Mapa { 'S227': {clave, nombre, tipo_separacion, stock_ficticio}, ... }
+            // separarPartidas() lo usa para decidir el destino de cada partida.
+            var PROVEEDORES_ESPECIALES = {};
+
+            async function cargarProveedoresEspeciales() {
+                try {
+                    var r = await fetch('https://owari.appsoma.online/somma/v2.0/api/proveedores-especiales');
+                    var data = await r.json();
+                    PROVEEDORES_ESPECIALES = Object.fromEntries(
+                        (data.proveedores || []).map(function(p) { return [p.clave, p]; })
+                    );
+                } catch (e) {
+                    console.warn('No se pudo cargar proveedores_especiales:', e);
+                    PROVEEDORES_ESPECIALES = {};
+                }
+            }
+            cargarProveedoresEspeciales();
+
+            var MAX_INTENTOS_SAE = 5;
+            var ESPERA_ENTRE_INTENTOS_MS = 2000;
+
+            function dormir(ms) {
+                return new Promise(function(resolve) { setTimeout(resolve, ms); });
+            }
+
+
+            // ──────────────────────────────────────────────────────────────────
+            // ORQUESTADOR PRINCIPAL
+            // ──────────────────────────────────────────────────────────────────
+            async function guardar_pedido_v2() {
+                if (!validarFormulario()) return;
+                mostrarCargando('Procesando tu pedido...');
+
+                try {
+                    // 1. Datos del cliente desde SAE (CLASIFIC + CAMPLIB3)
+                    var cliente = await obtenerClienteSae();
+
+                    // 2. Espejo en SOMA (todo el pedido tal cual; no bloqueante)
+                    capturarEnSoma(cliente, todasLasPartidas());
+
+                    // 3. Separar partidas en {sae, especiales}
+                    //    especiales es un mapa {claveProveedor: [...]} con los grupos
+                    //    de cada proveedor especial (S227, AAAA, etc.)
+                    var separadas = separarPartidas();
+
+                    // 4. Consultar regalo (si aplica, se agrega al bucket sae)
+                    var regalo = await consultarRegalo(cliente);
+                    if (regalo) separadas.sae.push(regalo);
+
+                    // 5. Guardar pedidos especiales (uno por proveedor)
+                    await guardarEspecialesGenerales(separadas.especiales);
+
+                    // 6. Clasificar SAE por empresa segun CLASIFIC del cliente
+                    var clasificacion = clasificarPorEmpresa(separadas.sae, cliente.CLASIFIC);
+
+                    // 7. Insertar en SAE con retry (1 o 2 pedidos)
+                    //    Cada llamada devuelve:
+                    //      string  → folio SAE
+                    //      null    → no hay partidas para esa empresa
+                    //      object  → { queued:true, id_pendiente } cuando los
+                    //                5 retries fallaron y el pedido quedo
+                    //                encolado en backend para retry diferido
+                    var resultadoFactura  = await insertarEnSaeConRetry(clasificacion.factura, 1);
+                    var resultadoRemision = clasificacion.remision.length
+                        ? await insertarEnSaeConRetry(clasificacion.remision, 3)
+                        : null;
+
+                    var folioFactura  = (typeof resultadoFactura  === 'string') ? resultadoFactura  : null;
+                    var folioRemision = (typeof resultadoRemision === 'string') ? resultadoRemision : null;
+
+                    var idsPendientes = [];
+                    if (resultadoFactura  && resultadoFactura.queued)  idsPendientes.push(resultadoFactura.id_pendiente);
+                    if (resultadoRemision && resultadoRemision.queued) idsPendientes.push(resultadoRemision.id_pendiente);
+                    var hayQueued = idsPendientes.length > 0;
+
+                    // 8. Espejo local — guardamos los folios que SI se lograron y
+                    //    enviamos los ids_pendientes_sae para que el controller
+                    //    enlace al PedidoWeb recien creado. Asi el job artisan
+                    //    podra actualizar el espejo cuando termine de insertar.
+                    var idPedido = await guardarPedidoWebLocal({
+                        cliente: cliente.CLAVE,
+                        folio_factura:        folioFactura,
+                        folio_remision:       folioRemision,
+                        partidas_sae:         clasificacion.factura.concat(clasificacion.remision),
+                        especiales:           separadas.especiales,
+                        regalo:               regalo,
+                        ids_pendientes_sae:   idsPendientes,
+                    });
+
+                    // 9. Si hay pendientes encolados, mostrar mensaje distinto;
+                    //    sino, redirigir a exito normal
+                    if (hayQueued) {
+                        mostrarPendiente(idPedido);
+                    } else {
+                        redirigirExito(idPedido);
+                    }
+
+                } catch (err) {
+                    console.error('guardar_pedido_v2 fallo:', err);
+                    mostrarError(err.message || 'Ocurrio un error inesperado');
+                }
+            }
+
+
+            // ──────────────────────────────────────────────────────────────────
+            // HELPERS — UI
+            // ──────────────────────────────────────────────────────────────────
+
+            function mostrarCargando(mensaje) {
+                // Muestra el modal #staticBackdrop con el mensaje y deshabilita
+                // el boton #guardar para evitar dobles clicks.
+                $("#staticBackdropLabel").text('Guardando pedido');
+                $("#staticBackdrop .modal-body").html(
+                    '<h5>' + (mensaje || 'Espera un momento, estamos guardando tu pedido...') + '</h5>'
+                );
+                $("#staticBackdrop .modal-footer").hide();
+                $('#staticBackdrop').modal('show');
+
+                $("#guardar").attr('disabled', 'disabled').text('Enviando pedido...');
+            }
+
+            function mostrarError(mensaje) {
+                // Cambia el contenido del modal a un mensaje de error, muestra
+                // el boton de cerrar y reactiva #guardar para que el cliente
+                // pueda intentar de nuevo.
+                $("#staticBackdropLabel").text('Error');
+                $("#staticBackdrop .modal-body").html(
+                    '<h5>' + (mensaje || 'Ocurrio un error inesperado.') + '</h5>'
+                );
+                $("#staticBackdrop .modal-footer").show();
+                $('#staticBackdrop').modal('show');
+
+                $("#guardar").removeAttr('disabled').text('Generar pedido');
+            }
+
+            function redirigirExito(idPedido) {
+                // Redirige a la pantalla de exito con el id del pedido local.
+                var url = "{{ route('tienda_online.guardado_exitoso') }}" +
+                          '?id_pedido=' + encodeURIComponent(idPedido || '');
+                window.location.href = url;
+            }
+
+            function mostrarPendiente(idPedido) {
+                // Cuando una o ambas insercciones SAE quedaron encoladas para
+                // retry diferido, mostramos un mensaje claro al cliente y NO
+                // redirigimos automaticamente — le damos el boton para ir a
+                // sus pedidos cuando este listo. El job artisan procesara la
+                // cola en background.
+                $("#staticBackdropLabel").text('Pedido en proceso');
+                $("#staticBackdrop .modal-body").html(
+                    '<div style="text-align:left;">' +
+                    '<h5 style="color:#ef6c00;">Tu pedido fue registrado correctamente.</h5>' +
+                    '<p>SAE no respondio en este momento, asi que estamos terminando de registrarlo en segundo plano. ' +
+                    'Te llegara confirmacion por correo en cuanto tengamos el folio definitivo.</p>' +
+                    '<p style="font-size:12px;color:#666;">No vuelvas a generar el pedido. Tu numero local es <b>' + (idPedido || '—') + '</b>.</p>' +
+                    '</div>'
+                );
+
+                // Reemplazo del footer por el boton "Ir a mis pedidos"
+                var $footer = $("#staticBackdrop .modal-footer");
+                $footer.html(
+                    '<a class="default-btn" href="{{ route('tienda_online.pedidos') }}">Ir a mis pedidos</a>'
+                ).show();
+
+                $('#staticBackdrop').modal('show');
+                $("#guardar").removeAttr('disabled').text('Generar pedido');
+            }
+
+
+            // ──────────────────────────────────────────────────────────────────
+            // HELPERS — DATOS DEL FORMULARIO Y CLIENTE
+            // ──────────────────────────────────────────────────────────────────
+
+            function validarFormulario() {
+                // Valida los campos obligatorios del formulario antes de iniciar
+                // el flujo de guardado. El monto minimo NO se valida aqui — el
+                // boton #guardar se deshabilita en el render del carrito si no
+                // se cumple.
+                var recibir   = $("#recibir").val();
+                var formaPago = $("#forma_pago").val();
+
+                if (recibir === '' || formaPago === '') {
+                    alert('Selecciona la forma de recepcion de tu mercancia y como vas a pagar tus productos');
+                    return false;
+                }
+
+                // Si recoge en tienda, la fecha y hora son obligatorias
+                if (recibir === 'PU' && !$("#fecha_recoge").val()) {
+                    alert('Selecciona el dia y hora para recoger tu pedido');
+                    $("#fecha_recoge").focus();
+                    return false;
+                }
+
+                return true;
+            }
+
+            function todasLasPartidas() {
+                // Junta partidas_finales + partidas_especiales_finales en un
+                // solo array. Se manda a SOMA capturar tal cual; SOMA aplica
+                // sus reglas internas (politicas, descuentos, etc.).
+                return (partidas_finales || []).concat(partidas_especiales_finales || []);
+            }
+
+            async function obtenerClienteSae() {
+                // GET /catalowari/api/datos_cliente?clave={clave}.
+                // Devuelve el row crudo de CLIE01 LEFT JOIN CLIE_CLIB01 (incluye
+                // CLASIFIC, CAMPLIB3, CAMPLIB13, METODODEPAGO, FORMADEPAGOSAT,
+                // USO_CFDI, RFC, CVE_VEND, etc.).
+                var claveCliente = '{{ \Auth::user()->clave_cliente }}';
+                var url = 'https://sistemasowari.com:8443/catalowari/api/datos_cliente?clave=' +
+                          encodeURIComponent(claveCliente);
+
+                var resp = await fetch(url);
+                if (!resp.ok) {
+                    throw new Error('No se pudo obtener los datos del cliente desde SAE (HTTP ' + resp.status + ')');
+                }
+
+                var data = await resp.json();
+                if (!data || !data.CLAVE) {
+                    throw new Error('Cliente ' + claveCliente + ' no encontrado en SAE');
+                }
+
+                return data;
+            }
+
+
+            // ──────────────────────────────────────────────────────────────────
+            // HELPERS — SEPARACION Y CLASIFICACION
+            // ──────────────────────────────────────────────────────────────────
+
+            function separarPartidas() {
+                // Itera partidas_finales (cart) y partidas_especiales_finales (cartEspecial),
+                // aplica la regla del proveedor (PROVEEDORES_ESPECIALES cargado desde SOMA)
+                // y devuelve { sae:[], especiales:{<claveProveedor>:[partidas]} }.
+                //
+                // Reglas por proveedor (desde proveedores_especiales):
+                //   sin config (proveedor normal)  → sae
+                //   tipo='todo_especial'            → especiales[clave]
+                //   tipo='split_por_stock':
+                //       cantidad <= existencia_sae  → sae
+                //       cantidad >  existencia_sae  → split:
+                //                                     existencia_sae a sae,
+                //                                     resto a especiales[clave]
+                //
+                // Las partidas que vienen del cartEspecial (manualmente movidas
+                // por el cliente) siempre se mandan a especiales[clave_proveedor],
+                // sin importar el tipo de separacion.
+                var sae = [];
+                var especiales = {};
+
+                function pushEspecial(claveProveedor, partida) {
+                    var clave = (claveProveedor || '').trim() || 'SIN_PROVEEDOR';
+                    if (!especiales[clave]) especiales[clave] = [];
+                    especiales[clave].push(partida);
+                }
+
+                function ajustarPartida(partida, nuevaCantidad) {
+                    var copia = Object.assign({}, partida);
+                    copia.cantidad = nuevaCantidad;
+                    copia.total = (nuevaCantidad * parseFloat(copia.precio)).toFixed(2);
+                    return copia;
+                }
+
+                // 1. Partidas del cart normal — aplican regla del proveedor
+                for (var i = 0; i < partidas_finales.length; i++) {
+                    var p = Object.assign({}, partidas_finales[i]);
+                    var claveProv = (p.clave_proveedor || '').trim();
+                    var config = claveProv ? PROVEEDORES_ESPECIALES[claveProv] : null;
+
+                    // Sin config — proveedor normal, va a SAE
+                    if (!config) {
+                        sae.push(p);
+                        continue;
+                    }
+
+                    // tipo='todo_especial' — todo va a pedido especial
+                    if (config.tipo_separacion === 'todo_especial') {
+                        pushEspecial(claveProv, p);
+                        continue;
+                    }
+
+                    // tipo='split_por_stock'
+                    if (config.tipo_separacion === 'split_por_stock') {
+                        var cantidad = parseInt(p.cantidad) || 0;
+                        var existenciaReal = Math.max(0, parseInt(p.existencia_sae) || 0);
+
+                        if (cantidad <= existenciaReal) {
+                            sae.push(p);
+                        } else if (existenciaReal === 0) {
+                            // Nada en SAE: todo a especial
+                            pushEspecial(claveProv, p);
+                        } else {
+                            // Split: lo que cabe en SAE va a SAE, el resto a especial
+                            sae.push(ajustarPartida(p, existenciaReal));
+                            pushEspecial(claveProv, ajustarPartida(p, cantidad - existenciaReal));
+                        }
+                        continue;
+                    }
+
+                    // Tipo desconocido — defensivo, va a SAE
+                    sae.push(p);
+                }
+
+                // 2. Partidas del cartEspecial — siempre a especiales por proveedor
+                for (var j = 0; j < partidas_especiales_finales.length; j++) {
+                    var pe = Object.assign({}, partidas_especiales_finales[j]);
+                    var claveProvE = (pe.clave_proveedor || '').trim();
+                    pushEspecial(claveProvE, pe);
+                }
+
+                // 3. Consolidar duplicados por codigo dentro de cada bucket especial
+                //    (pueden venir partidas iguales del cart y del cartEspecial)
+                Object.keys(especiales).forEach(function(clave) {
+                    especiales[clave] = consolidarPorCodigo(especiales[clave]);
+                });
+
+                return { sae: sae, especiales: especiales };
+            }
+
+            // Suma cantidades y totales de partidas con el mismo codigo, preservando
+            // los demas campos del primer registro encontrado.
+            function consolidarPorCodigo(arr) {
+                var mapa = {};
+                for (var i = 0; i < arr.length; i++) {
+                    var p = arr[i];
+                    var cod = p.codigo;
+                    if (!mapa[cod]) {
+                        mapa[cod] = Object.assign({}, p);
+                        mapa[cod].cantidad = parseInt(p.cantidad) || 0;
+                        mapa[cod].total = parseFloat(p.total) || 0;
+                    } else {
+                        mapa[cod].cantidad += parseInt(p.cantidad) || 0;
+                        mapa[cod].total += parseFloat(p.total) || 0;
+                    }
+                }
+                return Object.values(mapa).map(function(p) {
+                    p.total = parseFloat(p.total).toFixed(2);
+                    return p;
+                });
+            }
+
+            function clasificarPorEmpresa(partidasSae, clasif) {
+                // Decide si cada partida SAE va a empresa 1 (factura, con IVA)
+                // o empresa 3 (remision, sin IVA), segun la CLASIFIC del cliente.
+                //
+                // Reglas (replicadas de externos/guardarPedido original):
+                //   - Si CLASIFIC NO tiene W en pos.4 → todo a factura (E01)
+                //   - Si CLASIFIC tiene W en pos.4:
+                //       existencia_remision >= 0       → remision (E03)
+                //       existencia_factura > 0
+                //         AND cantidad <= existencia_factura → factura (E01)
+                //       resto → DESCARTADA (bug heredado, se preserva)
+                //
+                // El descarte se loguea como warning para que se pueda diagnosticar
+                // desde devtools sin afectar el comportamiento visible al cliente.
+                var factura  = [];
+                var remision = [];
+
+                if (!tieneWEnPos4(clasif)) {
+                    return { factura: partidasSae.slice(), remision: remision };
+                }
+
+                for (var i = 0; i < partidasSae.length; i++) {
+                    var p = partidasSae[i];
+                    var existRem = parseInt(p.existencia_remision);
+                    var existFac = parseInt(p.existencia_factura);
+                    var cantidad = parseInt(p.cantidad) || 0;
+
+                    if (!isNaN(existRem) && existRem >= 0) {
+                        remision.push(p);
+                    } else if (!isNaN(existFac) && existFac > 0 && cantidad <= existFac) {
+                        factura.push(p);
+                    } else {
+                        console.warn('clasificarPorEmpresa: partida descartada (no entra ni en E01 ni en E03)', p);
+                    }
+                }
+
+                return { factura: factura, remision: remision };
+            }
+
+            // CLASIFIC en SAE es VARCHAR(5). Si viene con menos de 5 chars,
+            // SAE la padea con espacios; aqui la padeamos por seguridad. Posicion 4
+            // (1-based) = indice 3 (0-based).
+            function tieneWEnPos4(clasif) {
+                if (!clasif) return false;
+                var c = String(clasif).padEnd(5, ' ');
+                return c.charAt(3).toUpperCase() === 'W';
+            }
+
+
+            // ──────────────────────────────────────────────────────────────────
+            // HELPERS — ENVIO A ENDPOINTS
+            // ──────────────────────────────────────────────────────────────────
+
+            function capturarEnSoma(cliente, partidas) {
+                // POST al proxy local soma.capturar_proxy, que reenvia a SOMA
+                // /api/pedidos/capturar con X-API-Key.
+                //
+                // Fire-and-forget: no esperamos respuesta. Si SOMA cae, el flujo
+                // sigue normal (graceful degradation). Si SOMA acepta, queda
+                // espejo del pedido alla.
+                //
+                // SOMA es la fuente de verdad nueva: recibe TODAS las partidas
+                // (cart + cartEspecial) sin separar; aplica sus reglas internas
+                // (politicas, descuentos, division normal/especial, etc.).
+                try {
+                    var idEnvio = (window.crypto && crypto.randomUUID)
+                        ? crypto.randomUUID()
+                        : ('env-' + Date.now() + '-' + Math.random().toString(36).slice(2));
+
+                    var partidasParaSoma = (partidas || []).map(function(p) {
+                        return { clave: p.codigo, cantidad: parseInt(p.cantidad) || 0 };
+                    });
+
+                    var payload = {
+                        clave_cliente:     cliente.CLAVE,
+                        partidas:          partidasParaSoma,
+                        origen:            'TIENDA_ONLINE',
+                        id_envio_externo:  idEnvio,
+                        destino_sucursal:  'E01',
+                        gran_total_origen: (gran_total || 0) + (gran_total_especial || 0),
+                    };
+
+                    fetch("{{ route('soma.capturar_proxy') }}", {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type':     'application/json',
+                            'Accept':           'application/json',
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'X-CSRF-TOKEN':     '{{ csrf_token() }}',
+                        },
+                        body: JSON.stringify(payload),
+                    }).catch(function(err) {
+                        console.warn('capturarEnSoma fallo:', err);
+                    });
+                } catch (e) {
+                    console.warn('capturarEnSoma excepcion:', e);
+                }
+            }
+
+            async function consultarRegalo(cliente) {
+                // POST /somma/v2.0/api/promociones-regalo/evaluar para saber si
+                // este pedido aplica a alguna promo de regalo activa.
+                //
+                // Manda los datos del cliente que SOMA necesita para matchear
+                // audiencia (campolibre y clasificacion vienen de SAE, no se
+                // consultan adentro de SOMA).
+                //
+                // Devuelve la partida_regalo lista para meter al bucket sae si
+                // SOMA responde aplica:true. Null en cualquier otro caso —
+                // incluyendo timeouts, errores de red o respuestas raras.
+                // Graceful degradation: si SOMA truena, el pedido se guarda sin
+                // regalo y el cliente no ve un error.
+                try {
+                    var granTotal = (gran_total || 0) + (gran_total_especial || 0);
+
+                    var payload = {
+                        clave_cliente: cliente.CLAVE,
+                        gran_total:    granTotal,
+                        origen:        'tienda',
+                        campolibre:    (cliente.CAMPLIB3 || '').toString().trim(),
+                        clasificacion: (cliente.CLASIFIC || '').toString().trim(),
+                    };
+
+                    var resp = await fetch(
+                        'https://owari.appsoma.online/somma/v2.0/api/promociones-regalo/evaluar',
+                        {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Accept':       'application/json',
+                            },
+                            body: JSON.stringify(payload),
+                        }
+                    );
+
+                    if (!resp.ok) {
+                        console.warn('consultarRegalo: SOMA respondio HTTP', resp.status);
+                        return null;
+                    }
+
+                    var data = await resp.json();
+                    if (!data || !data.aplica || !data.partida_regalo) {
+                        return null;
+                    }
+
+                    var pr = data.partida_regalo;
+                    return {
+                        codigo:              String(pr.clave || ''),
+                        descripcion:         (data.promocion && data.promocion.nombre) || 'Regalo promocional',
+                        cantidad:            parseInt(pr.cantidad) || 1,
+                        precio:              parseFloat(pr.precio || 0.01).toFixed(2),
+                        precio_iva:          parseFloat(pr.precio || 0.01).toFixed(2),
+                        total:               parseFloat(pr.total  || 0.01).toFixed(2),
+                        existencia_sae:      999,
+                        existencia_factura:  999,
+                        existencia_remision: -1,
+                        clave_proveedor:     '',
+                        es_regalo:           true,
+                    };
+                } catch (e) {
+                    console.warn('consultarRegalo fallo:', e);
+                    return null;
+                }
+            }
+
+            async function guardarEspecialesGenerales(especialesPorProveedor) {
+                // Itera el mapa { claveProveedor: [partidas], ... } y por cada
+                // grupo hace UN POST a pedidos.guardar_especial pasando
+                // clave_proveedor. Cubre S227 (SYD), AAAA y cualquier proveedor
+                // futuro. El backend decide el subject del email segun
+                // clave_proveedor (Pedido especial SYD vs Pedido especial).
+                //
+                // Usa jQuery $.post porque el endpoint espera 'partidas' como
+                // array anidado de PHP (extract + foreach); jQuery lo serializa
+                // como partidas[0][codigo]=..., que PHP recibe como array.
+                //
+                // Si una llamada truena, loguea warning y continua con las
+                // demas — no bloquea el flujo del pedido.
+                if (!especialesPorProveedor) return;
+
+                var claves = Object.keys(especialesPorProveedor);
+                for (var i = 0; i < claves.length; i++) {
+                    var claveProveedor = claves[i];
+                    var partidas = especialesPorProveedor[claveProveedor] || [];
+                    if (partidas.length === 0) continue;
+
+                    var data = {
+                        '_token':  '{{ csrf_token() }}',
+                        cliente:   '{{ \Auth::user()->clave_cliente }}',
+                        partidas:  partidas,
+                        carrito:   1,
+                    };
+                    if (claveProveedor && claveProveedor !== 'SIN_PROVEEDOR') {
+                        data.clave_proveedor = claveProveedor;
+                    }
+
+                    await guardarEspecialUnGrupo(data, claveProveedor);
+                }
+            }
+
+            // Wrapper que envuelve $.post en una promise para usar con await,
+            // y no truena el flujo si una falla — solo loguea warning.
+            function guardarEspecialUnGrupo(data, claveProveedor) {
+                return new Promise(function(resolve) {
+                    $.post("{{ route('pedidos.guardar_especial') }}", data)
+                        .done(function() { resolve(); })
+                        .fail(function(xhr) {
+                            console.warn(
+                                'guardarEspecialesGenerales fallo proveedor=' + claveProveedor,
+                                xhr && xhr.status,
+                                xhr && xhr.responseText
+                            );
+                            resolve();   // continuar con el siguiente proveedor
+                        });
+                });
+            }
+
+            async function insertarEnSaeConRetry(partidas, empresa) {
+                // Inserta el pedido en SAE empresa 1 (factura) o 3 (remision).
+                // Reintenta hasta MAX_INTENTOS_SAE veces con espera de 2s entre
+                // cada uno.
+                //
+                // Resultados posibles:
+                //   - Devuelve el folio string ("4CW12345") cuando SAE acepta
+                //   - Devuelve null cuando no hay partidas que insertar
+                //   - Devuelve { queued:true, id_pendiente, empresa, ultimo_error }
+                //     cuando los 5 intentos del frontend fallaron y el pedido
+                //     se encolo en backend para retry diferido
+                if (!partidas || partidas.length === 0) return null;
+
+                var ultimoError = null;
+
+                for (var intento = 1; intento <= MAX_INTENTOS_SAE; intento++) {
+                    try {
+                        var folio = await intentarInsercionSae(partidas, empresa);
+                        if (intento > 1) {
+                            console.log('insertarEnSaeConRetry exito en intento ' + intento + '/' + MAX_INTENTOS_SAE);
+                        }
+                        return folio;
+                    } catch (err) {
+                        ultimoError = err;
+                        console.warn(
+                            'insertarEnSaeConRetry empresa=' + empresa +
+                            ' intento=' + intento + '/' + MAX_INTENTOS_SAE +
+                            ' fallo:', err.message
+                        );
+
+                        if (intento < MAX_INTENTOS_SAE) {
+                            await dormir(ESPERA_ENTRE_INTENTOS_MS);
+                        }
+                    }
+                }
+
+                // Tras MAX_INTENTOS, encolar en backend para que un job artisan
+                // lo procese cada 5 min hasta lograrlo o marcarlo fallido.
+                console.warn('insertarEnSaeConRetry agoto reintentos para empresa=' + empresa + ', encolando...');
+                var idPendiente = await encolarSaePendiente(partidas, empresa, ultimoError);
+
+                return {
+                    queued:        true,
+                    id_pendiente:  idPendiente,
+                    empresa:       empresa,
+                    ultimo_error:  ultimoError ? ultimoError.message : null,
+                };
+            }
+
+            // Llama al endpoint local que guarda el pedido en pedidos_sae_pendientes
+            // para retry diferido. Si esto tambien truena, propagamos error al
+            // orquestador (no podemos hacer mas en el frontend).
+            async function encolarSaePendiente(partidas, empresa, ultimoError) {
+                var partidasParaSae = (partidas || []).map(function(p) {
+                    return partidaParaSae(p, empresa);
+                });
+
+                var data = {
+                    '_token':       '{{ csrf_token() }}',
+                    cliente:        '{{ \Auth::user()->clave_cliente }}',
+                    empresa:        empresa,
+                    usuario:        '{{ \Auth::user()->name }}',
+                    su_pedido:      'Pedido Online',
+                    partidas:       partidasParaSae,
+                    ultimo_error:   ultimoError ? ultimoError.message : 'desconocido',
+                };
+
+                return new Promise(function(resolve, reject) {
+                    $.post("{{ route('pedidos.encolar_sae_pendiente') }}", data)
+                        .done(function(resp) {
+                            try {
+                                var r = (typeof resp === 'string') ? JSON.parse(resp) : resp;
+                                if (r && r.code === 1) {
+                                    resolve(r.id_pendiente);
+                                } else {
+                                    reject(new Error('No se pudo encolar el pedido en backend'));
+                                }
+                            } catch (e) {
+                                reject(new Error('Respuesta invalida al encolar'));
+                            }
+                        })
+                        .fail(function(xhr) {
+                            console.error('encolarSaePendiente fallo', xhr && xhr.status, xhr && xhr.responseText);
+                            reject(new Error('Error de red al encolar el pedido'));
+                        });
+                });
+            }
+
+            // Un solo intento de POST a guardar_v2. Sin retry. El loop de
+            // arriba se encarga de reintentar.
+            async function intentarInsercionSae(partidas, empresa) {
+                var partidasParaSae = (partidas || []).map(function(p) {
+                    return partidaParaSae(p, empresa);
+                });
+
+                var payload = {
+                    empresa:   empresa,
+                    cliente:   '{{ \Auth::user()->clave_cliente }}',
+                    usuario:   '{{ \Auth::user()->name }}',
+                    su_pedido: 'Pedido Online',
+                    partidas:  partidasParaSae,
+                };
+
+                var resp = await fetch(
+                    'https://sistemasowari.com:8443/catalowari/api/guardar_v2',
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept':       'application/json',
+                        },
+                        body: JSON.stringify(payload),
+                    }
+                );
+
+                if (!resp.ok) {
+                    throw new Error('SAE respondio HTTP ' + resp.status);
+                }
+
+                var data = await resp.json();
+                if (!data || data.code !== 1 || !data.pedido) {
+                    throw new Error('SAE rechazo el pedido: ' + ((data && data.mensaje) || 'sin mensaje'));
+                }
+
+                return data.pedido;   // ej. "4CW12345"
+            }
+
+            // Construye el shape que guardar_v2 espera para una partida.
+            // Reglas:
+            //   - empresa 1 (factura): precio sin IVA, total con IVA
+            //   - empresa 3 (remision): precio sin IVA, total sin IVA
+            function partidaParaSae(p, empresa) {
+                var cantidad     = parseInt(p.cantidad) || 0;
+                var precioSinIva = parseFloat(p.precio_iva) || 0;
+                var totalConIva  = parseFloat(p.total) || 0;
+
+                return {
+                    clave:    p.codigo,
+                    cantidad: cantidad,
+                    precio:   precioSinIva,
+                    total:    empresa === 1 ? totalConIva : (precioSinIva * cantidad),
+                };
+            }
+
+            async function guardarPedidoWebLocal(payload) {
+                // POST a tienda_online.guardar_pedido para crear el espejo del
+                // pedido en pedidos_web (Postgres local). Es lo ultimo del flujo:
+                // ya tenemos folios SAE y pedidos especiales guardados, esto solo
+                // deja constancia local para "Mis pedidos" del cliente.
+                //
+                // Mandamos folio_factura y folio_remision por separado para que
+                // el controller los persista en pedido_sae y pedido_sae_remision
+                // respectivamente. pedido_sae sigue conteniendo SOLO el folio
+                // de factura (sin breaking change con codigo en produccion que
+                // lo lee como folio principal).
+                //
+                // Devuelve el id local de PedidoWeb para redirigir a la
+                // pantalla de exito.
+                var data = {
+                    '_token':            '{{ csrf_token() }}',
+                    usuario:             '{{ \Auth::user()->name }}',
+                    cliente:             payload.cliente,
+                    partidas:            payload.partidas_sae,
+                    folio_factura:       payload.folio_factura  || null,
+                    folio_remision:      payload.folio_remision || null,
+                    // pedido_sae se mantiene por compat: si por alguna razon el
+                    // controller lo lee directo, recibe el folio de factura.
+                    pedido_sae:          payload.folio_factura  || 0,
+                    fecha_recoge:        $("#fecha_recoge").val(),
+                    metodo_pago:         $("#metodo_pago").val(),
+                    forma_pago:          $("#forma_pago").val(),
+                    uso_cfdi:            $("#uso_cfdi").val(),
+                    gran_total:          (gran_total || 0) + (gran_total_especial || 0),
+                    ids_pendientes_sae:  payload.ids_pendientes_sae || [],
+                };
+
+                return new Promise(function(resolve, reject) {
+                    $.post("{{ route('tienda_online.guardar_pedido') }}", data)
+                        .done(function(resp) {
+                            try {
+                                var r = (typeof resp === 'string') ? JSON.parse(resp) : resp;
+                                if (r && r.code) {
+                                    resolve(r.id_pedido);
+                                } else {
+                                    reject(new Error('No se pudo registrar el pedido en el espejo local'));
+                                }
+                            } catch (e) {
+                                reject(new Error('Respuesta invalida del espejo local'));
+                            }
+                        })
+                        .fail(function(xhr) {
+                            console.warn('guardarPedidoWebLocal fallo', xhr && xhr.status);
+                            reject(new Error('Error de red al registrar el espejo local'));
+                        });
+                });
+            }
+
+
+            // ════════════════════════════════════════════════════════════════════
+            // FIN del esqueleto v2 — abajo continua el guardar_pedido() VIEJO
+            // ════════════════════════════════════════════════════════════════════
 
 
             function guardar_pedido() {

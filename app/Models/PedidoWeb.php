@@ -22,7 +22,8 @@ class PedidoWeb extends Model
        'cadena_original',
        'estado',
        'capturo',
-       'pedido_sae',
+       'pedido_sae',           // folio empresa 1 (factura). Se usa desde antes del refactor v2; semantica preservada.
+       'pedido_sae_remision',  // folio empresa 3 (remision). NUEVO en refactor v2 cuando cliente tiene W en pos.4.
        'tiendita',
        'porcentaje'
      ];

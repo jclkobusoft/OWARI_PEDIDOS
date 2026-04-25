@@ -5,7 +5,8 @@
                 <div class="card">
                     <div class="card-body">
                         <form>
-                            <div class="row">
+                            {{-- Radios — ocultos al inicio. Aparecen solo si el cliente seleccionado NO tiene W en pos.4 de CLASIFIC --}}
+                            <div class="row" id="radios_tipo_pedido" style="display:none;">
                                 <div class="col-md-6 offset-md-1">
                                     <div class="form-check">
                                         <input class="form-check-input tipo_cliente" type="radio" name="tipo_pedido"
@@ -232,10 +233,6 @@
         var total_pedidos = 0;
         var partidas_especiales = [];
         var special_price = 0;
-        // Mapa codigo -> cantidad que es SYD dentro de table_partidas.
-        // table_partidas muestra la cantidad TOTAL (normal + SYD) como si fuera un solo pedido.
-        // Este mapa permite, al guardar, separar las partidas SYD hacia el pedido especial S227.
-        var partidas_syd_map = {};
 
 
         $("#palabras_clave").focus(function (e) {
@@ -278,17 +275,11 @@
         }, false);
 
         $('#guardar').click(function () {
-
-            var partidas_formulario = table_partidas.getData();
-
-            if (($('#su_pedido').val() == "" || $('#su_pedido').val() == null) && partidas_formulario.length > 0) {
-                alert("Confirma si es mostrador o ingresa la hora de entrega");
-                $('#su_pedido').focus();
-            }
-            else {
-                guardar_pedido();
-            }
-
+            // Fase 12: el click ahora invoca el flujo v2 (orquestador async/await
+            // con chunks, retry, regalos via SOMA, abstraccion de proveedores
+            // especiales, etc.). El viejo guardar_pedido() fue eliminado.
+            // La validacion de su_pedido se hace dentro de validarFormulario().
+            guardar_pedido_v2();
         });
 
         var table = new Tabulator("#resultados_busqueda", {
@@ -613,19 +604,9 @@
                                     cantidad_final += parseInt(k.cantidad)
                             });
                             actualizarPrecio(cantidad_final, producto_partida.clave);
-                            // SYD: sumar al mapa existente (acumular)
-                            if (a_syd > 0) {
-                                partidas_syd_map[producto_partida.clave] = (partidas_syd_map[producto_partida.clave] || 0) + a_syd;
-                            }
                         }
                         else {
                             actualizarPrecio(cantidad_total_partida, producto_partida.clave);
-                            // SYD: sustituir el mapa con el nuevo valor
-                            if (a_syd > 0) {
-                                partidas_syd_map[producto_partida.clave] = a_syd;
-                            } else {
-                                delete partidas_syd_map[producto_partida.clave];
-                            }
                         }
                         ya_existe = true;
                         return false;
@@ -684,12 +665,6 @@
                     "total": (cantidad_total_partida * precio).toFixed(2)
                 }]);
                 partidas.push(obj);
-
-                // SYD: registrar cuantas unidades de esta partida son SYD (no van a SAE,
-                // iran a pedido especial S227 al momento de guardar)
-                if (a_syd > 0) {
-                    partidas_syd_map[obj.clave] = a_syd;
-                }
 
                 setTimeout(() => {
                     $("#galeria").html('')
@@ -1201,364 +1176,925 @@
         }
 
 
-        function guardar_pedido() {
-            //armamos el data del formulario
+        // ════════════════════════════════════════════════════════════════════
+        // FLUJO DE GUARDADO (v2)
+        // ════════════════════════════════════════════════════════════════════
+        // El click en #guardar invoca guardar_pedido_v2(). Es el unico flujo
+        // activo; el viejo se elimino en Fase 12 del refactor.
+        //
+        //   guardar_pedido_v2()              ← orquestador (async/await)
+        //     ├── validarFormulario()
+        //     ├── obtenerClienteSeleccionado()      ← del select, no Auth user
+        //     ├── obtenerTipoRadioSiCorresponde()   ← solo si cliente NO tiene W
+        //     ├── capturarEnSoma()                  (no bloqueante, fire-and-forget)
+        //     ├── separarPartidas()                 ← usa PROVEEDORES_ESPECIALES
+        //     ├── consultarRegalo()                 ← origen='telemarketing'
+        //     ├── guardarEspecialesGenerales()
+        //     ├── clasificarPorEmpresa()            ← W en pos.4 + radio si no tiene W
+        //     ├── insertarEnSaeConRetry()           ← CHUNKS DE 30 con reintentos
+        //     │     └── insertarChunkConReintentosManuales()
+        //     │            └── intentarChunkConRetryInterno() (5 retries auto)
+        //     │            └── mostrarOpcionReintentar() (boton del vendedor)
+        //     ├── guardarPedidoLocal()              ← modelo Pedido conservado
+        //     └── mostrarExito() / mostrarError()
+        //
+        // Helpers UI:    mostrarCargando, mostrarError, mostrarExito,
+        //                mostrarOpcionReintentar
+        // Helpers datos: todasLasPartidas, cargarProveedoresEspeciales,
+        //                dividirEnChunks, calcularGranTotalActual
+        // ════════════════════════════════════════════════════════════════════
 
-            $('#guardar').attr('disabled', 'disabled');
-            var alertas = "";
+        // Catalogo de proveedores especiales — cargado al iniciar la pagina
+        var PROVEEDORES_ESPECIALES = {};
 
-            if ($("#cliente").val() < 0) {
-                alertas += "<h5>Selecciona un cliente valido</h5>";
-                $(".texto_modal").html(alertas);
-                $("#modal").modal("show");
-                $('#guardar').removeAttr('disabled');
-                return false;
-            }
-
-            var partidas_formulario = table_partidas.getData();
-            var partidas_formulario_especial = table_partidas_especiales.getData();
-
-            // Separar SYD del resto antes de cualquier validacion o flujo
-            var partidas_syd_finales = [];
-            var partidas_formulario_sae = [];
-            for (var i = 0; i < partidas_formulario.length; i++) {
-                var p = Object.assign({}, partidas_formulario[i]);
-                var codigo = p.codigo;
-                var cantSyd = parseInt(partidas_syd_map[codigo] || 0);
-                if (cantSyd > 0) {
-                    var precioNum = parseFloat(p.precio);
-                    partidas_syd_finales.push({
-                        codigo: codigo,
-                        descripcion: p.descripcion,
-                        cantidad: cantSyd,
-                        precio: p.precio,
-                        precio_iva: p.precio_iva,
-                        total: (cantSyd * precioNum).toFixed(2)
-                    });
-                    var cantidadNormal = parseInt(p.cantidad) - cantSyd;
-                    if (cantidadNormal > 0) {
-                        p.cantidad = cantidadNormal;
-                        p.total = (cantidadNormal * precioNum).toFixed(2);
-                        partidas_formulario_sae.push(p);
-                    }
-                } else {
-                    partidas_formulario_sae.push(p);
-                }
-            }
-            partidas_formulario = partidas_formulario_sae;
-
-            if (partidas_formulario.length <= 0 && partidas_formulario_especial.length <= 0 && partidas_syd_finales.length <= 0) {
-                alertas += "<h5>Ingresa por lo menos una partida en el pedido</h5>";
-                $(".texto_modal").html(alertas);
-                $("#modal").modal("show");
-                $('#guardar').removeAttr('disabled');
-                return false;
-            }
-
-            $("#cargando").css('display', 'block');
-            $("#pedidos_finales").css('display', 'block');
-
-
-
-            var partidas_soma_especial = [];
-
-            for (var i = 0; i < partidas_formulario_especial.length; i++) {
-                partidas_soma_especial.push({
-                    "clave": partidas_formulario_especial[i].codigo,
-                    "cantidad": partidas_formulario_especial[i].cantidad,
-                    "precio": partidas_formulario_especial[i].precio,
-                    "total": partidas_formulario_especial[i].total
-                });
-            }
-
-            var soma_especial = {
-                "clave_cliente": clientes[$("#cliente").val()],
-                "clave_sucursal": "E01",
-                "tipo_serie": "PE",
-                "partidas": partidas_soma_especial
-            }
-
-            if (partidas_formulario_especial.length > 0) {
-                var data = {
-                    cliente: clientes[$("#cliente").val()],
-                    '_token': "{{ csrf_token() }}",
-                    partidas: partidas_formulario_especial
-                };
-
-                $.post("{{ route('pedidos.guardar_especial') }}", data,
-                    function (data, textStatus, jqXHR) {
-                        $.post("https://owari.appsoma.online/somma/v2.0/pedidos/especial/externo", soma_especial,
-                            function (data, textStatus, jqXHR) {
-                                if (partidas_formulario.length <= 0) {
-                                    if (data.code) {
-                                        $(".texto_modal").html("<h5>Tu pedido especial fue guardado, tiene que ser validado.</h5>");
-                                        $(".modal-footer-especiales").show();
-                                        table_partidas_especiales.setData([]);
-                                    }
-                                    else {
-
-                                    }
-                                }
-                            },
-                            "json"
-                        );
-                    },
-                    "json"
+        async function cargarProveedoresEspeciales() {
+            try {
+                var r = await fetch('https://owari.appsoma.online/somma/v2.0/api/proveedores-especiales');
+                var data = await r.json();
+                PROVEEDORES_ESPECIALES = Object.fromEntries(
+                    (data.proveedores || []).map(function(p) { return [p.clave, p]; })
                 );
+            } catch (e) {
+                console.warn('No se pudo cargar proveedores_especiales:', e);
+                PROVEEDORES_ESPECIALES = {};
             }
+        }
+        cargarProveedoresEspeciales();
 
-            // Enviar pedido especial SYD (bandera proveedor S227) si aplica
-            if (partidas_syd_finales.length > 0) {
-                var dataSYD = {
-                    cliente: clientes[$("#cliente").val()],
-                    '_token': "{{ csrf_token() }}",
-                    partidas: partidas_syd_finales,
-                    clave_proveedor: 'S227'
-                };
-                $.post("{{ route('pedidos.guardar_especial') }}", dataSYD, function (res) { }, "json");
-            }
+        var MAX_INTENTOS_SAE = 5;
+        var ESPERA_ENTRE_INTENTOS_MS = 2000;
+        var CHUNK_SIZE_SAE = 30;
 
-
-
-            // Si no hay partidas normales, no guardar pedido normal
-            if (partidas_formulario.length <= 0) {
-                if (partidas_formulario_especial.length > 0) {
-                    $(".texto_modal").html("<h5>Tu pedido especial fue guardado correctamente.</h5>");
-                    $(".modal-footer-especiales").show();
-                    $("#modal").modal("show");
-                    table_partidas_especiales.setData([]);
-                    $('#guardar').removeAttr('disabled');
-                }
-                return;
-            }
-
-            var data = {
-                usuario: '{{ \Auth::user()->name }}',
-                cliente: clientes[$("#cliente").val()],
-                '_token': "{{ csrf_token() }}",
-                partidas: partidas_formulario,
-                partidas_detalle: partidas,
-                'su_pedido': $('#su_pedido').val(),
-                'tipo': $("input:radio[name ='tipo_pedido']:checked").val()
-            };
-
-
-
-            $(".texto_modal").html("<h5>Tu pedido esta guardandose...</h5>");
-            $(".modal-footer").hide();
-            $("#modal").modal("show");
-
-            //GUARDAMOS EL PEDIDO EN POSTGRES
-
-
-
-            $.post("{{ route('pedidos.guardar') }}", data,
-                function (data, textStatus, jqXHR) {
-                    if (data.code) {
-                        $(".texto_modal").html("<h5>Tus pedidos se esta guardando espera un momento.</h5>");
-                        $(".modal-footer").show();
-
-
-                        partidas_formulario = table_partidas.getData();
-
-                        var partes_empresa_uno = dividirEnPartes(data.partidas_a, 30);
-                        var partes_empresa_tres = dividirEnPartes(data.partidas_b, 30);
-
-                        console.log(partes_empresa_uno, partes_empresa_tres);
-
-                        partes_empresa_uno.forEach(function (arreglo) {
-
-                            var auxiliar_uno = [];
-                            arreglo.forEach(function (value) {
-                                partidas_formulario.forEach(function (valor) {
-                                    if (valor['codigo'] == value['clave']) {
-                                        auxiliar_uno.push(valor);
-                                        return false;
-                                    }
-                                });
-                            });
-                            partidas_partidas_uno.push(auxiliar_uno);
-                        });
-
-                        partes_empresa_tres.forEach(function (arreglo) {
-                            var auxiliar_tres = [];
-                            arreglo.forEach(function (value) {
-                                partidas_formulario.forEach(function (valor) {
-                                    if (valor['codigo'] == value['clave']) {
-                                        auxiliar_tres.push(valor);
-                                        return false;
-                                    }
-                                });
-                            });
-                            partidas_partidas_tres.push(auxiliar_tres);
-                        });
-
-                        // ── Reset estado de captura SOMA paralela ──
-                        sae_folios_acumulados = [];
-                        soma_id_envio_externo = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
-                            : ('env-' + Date.now() + '-' + Math.random().toString(36).slice(2));
-                        soma_partidas_crudas = partidas_formulario.map(function (p) {
-                            return { clave: p.codigo, cantidad: p.cantidad };
-                        });
-                        soma_total_origen = partidas_formulario.reduce(function (acc, p) {
-                            return acc + Number(p.total || 0);
-                        }, 0);
-                        soma_destino_sucursal = ($("input:radio[name='tipo_pedido']:checked").val() === 'factura') ? 'E01' : 'TODAS';
-
-                        // SAE en E01 (chunks)
-                        partidas_partidas_uno.forEach(function (data, index) {
-                            guardar_pedido_sae(1, index);
-                        });
-
-                        // SAE en E03 (chunks)
-                        partidas_partidas_tres.forEach(function (data, index) {
-                            guardar_pedido_sae(3, index);
-                        });
-
-                        total_pedidos = partidas_partidas_uno.length + partidas_partidas_tres.length;
-
-                        var texto = "NO hay PEDIDOS para la empresa 1";
-                        if (partidas_partidas_uno.length > 0)
-                            texto = "Se GUARDAN " + partidas_partidas_uno.length + " pedidos para la empresa 1";
-
-                        $("#guardar_pedido_1").html('<label>' + texto + '</label>');
-
-                        var texto = "NO hay PEDIDOS para la empresa 3";
-                        if (partidas_partidas_tres.length > 0)
-                            texto = "Se GUARDAN " + partidas_partidas_tres.length + " pedidos para la empresa 3";
-
-                        $("#guardar_pedido_3").html('<label>' + texto + '</label>');
-
-
-
-
-
-                    }
-                    else {
-                        $(".texto_modal").html("<h5>Tu pedido no se guardo, ocurrio un error general, vuelve a capturarlo.</h5>");
-                        $(".modal-footer").show();
-                        $('#guardar').removeAttr('disabled');
-                    }
-                },
-                "json"
-            ).fail(function () {
-                $(".texto_modal").html("<h5>Tu pedido no se guardo, ocurrio un error general, vuelve a capturarlo.</h5>");
-                $('#guardar').removeAttr('disabled');
-                $(".modal-footer").show();
-            });
-
-
+        function dormir(ms) {
+            return new Promise(function(resolve) { setTimeout(resolve, ms); });
         }
 
-        var guardado_ok = 0;
-        var desaparece = 0;
 
-        // ── Estado de captura paralela SOMA ──
-        var sae_folios_acumulados = [];
-        var soma_id_envio_externo = null;
-        var soma_partidas_crudas = [];
-        var soma_total_origen = 0;
-        var soma_destino_sucursal = 'TODAS';
-        var soma_capturado = false;
-
-        function dispararCapturaSoma() {
-            if (soma_capturado) return;
-            soma_capturado = true;
+        // ──────────────────────────────────────────────────────────────────
+        // ORQUESTADOR PRINCIPAL
+        // ──────────────────────────────────────────────────────────────────
+        async function guardar_pedido_v2() {
+            if (!validarFormulario()) return;
+            mostrarCargando('Procesando tu pedido...');
 
             try {
-                var payload = {
-                    clave_cliente: clientes[$("#cliente").val()],
-                    partidas: soma_partidas_crudas,
-                    origen: 'CAPTURADOR',
-                    id_envio_externo: soma_id_envio_externo,
-                    destino_sucursal: soma_destino_sucursal,
-                    gran_total_origen: soma_total_origen,
-                    pedidos_sae: sae_folios_acumulados
-                };
+                // 1. Cliente del select (con CLASIFIC y CAMPLIB3 ya cargados al cambiar select)
+                var cliente = obtenerClienteSeleccionado();
 
-                $.ajax({
-                    url: '{{ route('soma.capturar_proxy') }}',
-                    method: 'POST',
-                    contentType: 'application/json',
-                    data: JSON.stringify(payload),
-                    timeout: 30000
-                }).fail(function (xhr) {
-                    if (window.console) console.warn('SOMA capture fallo', xhr && xhr.status, xhr && xhr.responseText);
+                // 2. Determinar tipoRadio: solo aplica si cliente NO tiene W en pos.4.
+                //    Si tiene W → null (auto split por existencia).
+                //    Si no tiene W → 'normal' o 'factura' del radio.
+                var tipoRadio = obtenerTipoRadioSiCorresponde(cliente);
+
+                // destino_sucursal para SOMA:
+                //   tipoRadio='factura' → 'E01' (forzar empresa 1)
+                //   resto (W o normal)  → 'TODAS' (SOMA decide)
+                var destinoSomaSucursal = (tipoRadio === 'factura') ? 'E01' : 'TODAS';
+
+                // 3. Espejo en SOMA — todas las partidas, fire-and-forget
+                capturarEnSoma(cliente, todasLasPartidas(), destinoSomaSucursal);
+
+                // 4. Separar partidas en {sae, especiales}
+                var separadas = separarPartidas();
+
+                // 5. Consultar regalo (origen='telemarketing')
+                var regalo = await consultarRegalo(cliente);
+                if (regalo) separadas.sae.push(regalo);
+
+                // 6. Guardar pedidos especiales (uno por proveedor)
+                await guardarEspecialesGenerales(separadas.especiales, cliente.clave);
+
+                // 7. Clasificar SAE por empresa
+                var clasificacion = clasificarPorEmpresa(separadas.sae, cliente.CLASIFIC, tipoRadio);
+
+                // 8. Insertar en SAE con CHUNKS de 30 + retry automatico + reintento manual
+                var foliosFactura  = await insertarEnSaeConRetry(clasificacion.factura, 1, cliente.clave);
+                var foliosRemision = clasificacion.remision.length
+                    ? await insertarEnSaeConRetry(clasificacion.remision, 3, cliente.clave)
+                    : [];
+
+                // 9. Espejo local (modelo Pedido)
+                var idPedido = await guardarPedidoLocal({
+                    cliente: cliente.clave,
+                    folios_factura:  foliosFactura,
+                    folios_remision: foliosRemision,
+                    partidas_sae:    clasificacion.factura.concat(clasificacion.remision),
+                    especiales:      separadas.especiales,
+                    regalo:          regalo,
+                    tipo_radio:      tipoRadio,
                 });
-            } catch (e) {
-                if (window.console) console.warn('SOMA capture excepcion', e);
+
+                // 10. Mostrar exito con resumen de folios
+                mostrarExito(idPedido, foliosFactura, foliosRemision);
+
+            } catch (err) {
+                console.error('guardar_pedido_v2 fallo:', err);
+                mostrarError(err.message || 'Ocurrio un error inesperado');
             }
         }
 
-        function guardar_pedido_sae(empresa, numero_index) {
-            desaparece++;
-            if (empresa == 1)
-                var partidas_finales = partidas_partidas_uno[numero_index];
-            else
-                var partidas_finales = partidas_partidas_tres[numero_index];
 
-            var data = {
-                usuario: '{{ \Auth::user()->name }}',
-                cliente: clientes[$("#cliente").val()],
-                '_token': "{{ csrf_token() }}",
-                partidas: partidas_finales,
-                partidas_detalle: partidas,
-                'su_pedido': $('#su_pedido').val(),
-                'empresa_seleccionada': empresa,
-                tipo: $("input:radio[name ='tipo_pedido']:checked").val()
-            };
+        // ──────────────────────────────────────────────────────────────────
+        // HELPERS — UI
+        // ──────────────────────────────────────────────────────────────────
 
-            console.log(partidas_finales);
+        function mostrarCargando(mensaje) {
+            // Limpia el modal de cualquier estado previo (errores, folios, etc.),
+            // muestra el spinner + mensaje y deshabilita #guardar.
+            $('.texto_modal').html('<h5>' + (mensaje || 'Procesando tu pedido...') + '</h5>');
+            $('.modal-footer-especiales').hide();
+            $('.terminar').addClass('d-none');
+            $('#cargando').css('display', 'block');
+            $('#pedidos_finales').css('display', 'none');
+            $('#guardar_pedido_1').empty();
+            $('#guardar_pedido_3').empty();
+            $('.reiniciar_pantalla').addClass('d-none');
+            $('#modal').modal('show');
+            $('#guardar').attr('disabled', 'disabled');
+        }
 
-            $.post("https://sistemasowari.com:8443/catalowari/api/guardar", data,
-                function (data, textStatus, jqXHR) {
-                    if (data.code) {
-                        if (data.pedido != "N/A")
-                            $("#guardar_pedido_" + empresa).append("<h5>Tu pedido " + (numero_index + 1) + " de E" + empresa + " fue el: " + data.pedido + "</h5>");
+        function mostrarError(mensaje) {
+            // Estado de error: oculta spinner, muestra el boton Cerrar (que
+            // recarga la pagina) y reactiva #guardar para reintento manual.
+            $('.texto_modal').html(
+                '<h5 class="text-danger">' + (mensaje || 'Ocurrio un error') + '</h5>'
+            );
+            $('#cargando').css('display', 'none');
+            $('#pedidos_finales').css('display', 'none');
+            $('.reiniciar_pantalla').off('click').on('click', function(e) {
+                e.preventDefault();
+                location.reload();
+            }).removeClass('d-none');
+            $('#modal').modal('show');
+            $('#guardar').removeAttr('disabled');
+        }
 
-                        // Acumular folio SAE para mandar a SOMA al final
-                        if (data.pedido && data.pedido != "N/A") {
-                            var totalChunk = 0;
-                            for (var k = 0; k < partidas_finales.length; k++) {
-                                totalChunk += Number(partidas_finales[k].total || 0);
-                            }
-                            sae_folios_acumulados.push({
-                                folio: data.pedido,
-                                sucursal_sae: empresa == 1 ? 'E01' : 'E03',
-                                gran_total: totalChunk,
-                                partidas: partidas_finales.length
-                            });
-                        }
+        function mostrarExito(idPedido, foliosFactura, foliosRemision) {
+            // Resumen de folios SAE generados, agrupados por empresa.
+            // El boton Cerrar recarga la pagina (limpia formulario para
+            // capturar otro pedido).
+            var resumenE1 = (foliosFactura && foliosFactura.length > 0)
+                ? '<b>Empresa 1 (Factura):</b><br>' +
+                    foliosFactura.map(function(f, i) { return '&nbsp;&nbsp;Pedido ' + (i+1) + ': ' + f; }).join('<br>')
+                : '<b>Empresa 1 (Factura):</b> <span class="text-muted">sin pedidos</span>';
 
-                        guardado_ok++;
+            var resumenE3 = (foliosRemision && foliosRemision.length > 0)
+                ? '<b>Empresa 3 (Remision):</b><br>' +
+                    foliosRemision.map(function(f, i) { return '&nbsp;&nbsp;Pedido ' + (i+1) + ': ' + f; }).join('<br>')
+                : '<b>Empresa 3 (Remision):</b> <span class="text-muted">sin pedidos</span>';
 
-                        if (guardado_ok >= total_pedidos) {
-                            $('.reiniciar_pantalla').removeClass('d-none');
-                            $('.reiniciar_pantalla').click(function (e) {
-                                e.preventDefault();
-                                table_partidas.setData([]);
-                                location.reload();
-                            });
+            $('.texto_modal').html(
+                '<h5 class="text-success">Pedido guardado correctamente.</h5>' +
+                '<div class="text-start mt-3" style="font-size:13px;">' +
+                    '<p class="mb-2">' + resumenE1 + '</p>' +
+                    '<p class="mb-0">' + resumenE3 + '</p>' +
+                '</div>'
+            );
+            $('#cargando').css('display', 'none');
+            $('#pedidos_finales').css('display', 'none');
+            $('.reiniciar_pantalla').off('click').on('click', function(e) {
+                e.preventDefault();
+                location.reload();
+            }).removeClass('d-none');
+            $('#modal').modal('show');
+        }
 
-                            // Todos los SAE OK → disparar captura paralela en SOMA
-                            dispararCapturaSoma();
-                        }
-                    }
-                    else {
-                        $("#guardar_pedido_" + empresa).append('<div class="click_desaparece">Uno de tus pedidos no se guardo <button href="#" onclick="guardar_pedido_sae(' + empresa + ',' + numero_index + ')" class="bnt btn-warning desaparece_' + desaparece + '">Intenta guardar nuevamente E' + empresa + ' Pedido ' + (numero_index + 1) + '</button></div>');
-                        $('.desaparece_' + desaparece).click(function () {
-                            $(this).closest('.click_desaparece').hide();
-                        })
-                    }
-                },
-                "json"
-            ).fail(function () {
-                $("#guardar_pedido_" + empresa).append('<div class="click_desaparece">Uno de tus pedidos no se guardo <button href="#" onclick="guardar_pedido_sae(' + empresa + ',' + numero_index + ')" class="bnt btn-warning desaparece_' + desaparece + '">Intenta guardar nuevamente E' + empresa + ' Pedido ' + (numero_index + 1) + '</button></div>');
-                $('.desaparece_' + desaparece).click(function () {
-                    $(this).closest('.click_desaparece').hide();
-                })
+        function mostrarOpcionReintentar(empresa, idx, total, errorMsg) {
+            // Inserta un bloque inline en el panel de la empresa con el
+            // mensaje del error + botones [Reintentar] [Cancelar].
+            // Devuelve Promise<boolean> que se resuelve cuando el vendedor
+            // hace click en uno de los botones.
+            //   resolve(true)  → quiere reintentar
+            //   resolve(false) → cancela el flujo
+            return new Promise(function(resolve) {
+                var divId = 'reintentar_' + empresa + '_' + idx + '_' + Date.now();
+                var msgSeguro = String(errorMsg || 'error desconocido')
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;');
+
+                var html = '<div id="' + divId + '" class="alert alert-warning mt-2 p-2 text-start">' +
+                           '  <small><b>✗ Pedido ' + idx + '/' + total + ' de E' + empresa + '</b> fallo tras ' +
+                           MAX_INTENTOS_SAE + ' intentos:<br>' +
+                           '  <span class="text-muted">' + msgSeguro + '</span></small><br>' +
+                           '  <button type="button" class="btn btn-sm btn-success me-2 mt-2 btn-reintentar-chunk">' +
+                           '    <i class="bi bi-arrow-repeat"></i>&nbsp;Reintentar' +
+                           '  </button>' +
+                           '  <button type="button" class="btn btn-sm btn-danger mt-2 btn-cancelar-chunk">' +
+                           '    Cancelar' +
+                           '  </button>' +
+                           '</div>';
+
+                $('#guardar_pedido_' + empresa).append(html);
+
+                var $div = $('#' + divId);
+                $div.find('.btn-reintentar-chunk').on('click', function() {
+                    $div.replaceWith(
+                        '<div class="text-info"><small>&nbsp;&nbsp;⟳ Reintentando pedido ' +
+                        idx + '/' + total + ' de E' + empresa + '...</small></div>'
+                    );
+                    resolve(true);
+                });
+                $div.find('.btn-cancelar-chunk').on('click', function() {
+                    $div.replaceWith(
+                        '<div class="text-danger"><small>&nbsp;&nbsp;✗ Pedido ' +
+                        idx + '/' + total + ' cancelado por el vendedor.</small></div>'
+                    );
+                    resolve(false);
+                });
             });
         }
+
+
+        // ──────────────────────────────────────────────────────────────────
+        // HELPERS — DATOS DEL FORMULARIO Y CLIENTE
+        // ──────────────────────────────────────────────────────────────────
+
+        function validarFormulario() {
+            // Validaciones secuenciales, primer fail muestra alert y termina.
+            //   1. Cliente seleccionado (no -1 ni undefined)
+            //   2. Al menos una partida (normal o especial)
+            //   3. su_pedido capturado si hay partidas normales (heredado del flujo viejo)
+            var indiceCliente = $("#cliente").val();
+            if (indiceCliente === undefined || parseInt(indiceCliente) < 0) {
+                alert('Selecciona un cliente valido');
+                return false;
+            }
+
+            var partidasNormales   = (typeof table_partidas !== 'undefined') ? table_partidas.getData() : [];
+            var partidasEspeciales = (typeof table_partidas_especiales !== 'undefined') ? table_partidas_especiales.getData() : [];
+
+            if (partidasNormales.length === 0 && partidasEspeciales.length === 0) {
+                alert('Ingresa por lo menos una partida en el pedido');
+                return false;
+            }
+
+            if (partidasNormales.length > 0 && (!$('#su_pedido').val() || $('#su_pedido').val().trim() === '')) {
+                alert('Confirma si es mostrador o ingresa la hora de entrega');
+                $('#su_pedido').focus();
+                return false;
+            }
+
+            return true;
+        }
+
+        function obtenerClienteSeleccionado() {
+            // Devuelve el objeto cliente del array global `clientes`. CLASIFIC
+            // y CAMPLIB3 los enriquece el onChange del select (Fase 4); si Fase 4
+            // aun no esta hecha, vienen vacios y se tratan como "sin W"
+            // (default a factura via radio).
+            var indice = $("#cliente").val();
+            if (indice === undefined || parseInt(indice) < 0) {
+                throw new Error('No hay cliente seleccionado');
+            }
+            var c = clientes[indice];
+            if (!c) {
+                throw new Error('Cliente no encontrado en el array clientes');
+            }
+            return {
+                clave:    c.clave,
+                nombre:   c.nombre || '',
+                EMPRESA:  c.EMPRESA || c.empresa || null,
+                CLASIFIC: c.CLASIFIC || '',
+                CAMPLIB3: c.CAMPLIB3 || '',
+            };
+        }
+
+        function obtenerTipoRadioSiCorresponde(cliente) {
+            // Si CLASIFIC tiene W en pos.4 → null (regla auto, no consulta radio).
+            // Sino → 'normal' o 'factura' del radio visible. Default 'normal'
+            // si por alguna razon no hay seleccionado.
+            if (tieneWEnPos4(cliente.CLASIFIC)) {
+                return null;
+            }
+            var seleccionado = $("input:radio[name='tipo_pedido']:checked").val();
+            return seleccionado || 'normal';
+        }
+
+        function todasLasPartidas() {
+            // Junta normales + especiales. Se manda a SOMA capturar tal cual;
+            // SOMA aplica sus reglas internas (politicas, descuentos, division
+            // normal/especial, etc.).
+            var normales   = (typeof table_partidas !== 'undefined') ? table_partidas.getData() : [];
+            var especiales = (typeof table_partidas_especiales !== 'undefined') ? table_partidas_especiales.getData() : [];
+            return (normales || []).concat(especiales || []);
+        }
+
+
+        // ──────────────────────────────────────────────────────────────────
+        // HELPERS — SEPARACION Y CLASIFICACION
+        // ──────────────────────────────────────────────────────────────────
+
+        function separarPartidas() {
+            // Itera table_partidas (visibles) y table_partidas_especiales y
+            // los enriquece con datos del array `partidas`/`partidas_especiales`
+            // (los obj crudos de empresa_buscar_producto_vendedores) para
+            // conocer clave_proveedor, existencia_factura y existencia_remision.
+            //
+            // Devuelve { sae: [...], especiales: { claveProveedor: [...] } }.
+            //
+            // Reglas por proveedor (mismas que carrito):
+            //   sin config en PROVEEDORES_ESPECIALES → sae
+            //   tipo='todo_especial'                  → especiales[clave]
+            //   tipo='split_por_stock':
+            //     cantidad <= existencia_real (obj.existencia - stock_ficticio) → sae
+            //     existencia_real == 0           → todo a especiales[clave]
+            //     cantidad >  existencia_real    → split (real a sae + resto a especial)
+            //
+            // Las partidas movidas manualmente al cartEspecial (table_partidas_especiales)
+            // siempre se agrupan por clave_proveedor, sin importar el tipo.
+            var sae = [];
+            var especiales = {};
+
+            function pushEspecial(claveProveedor, partida) {
+                var clave = (claveProveedor || '').trim() || 'SIN_PROVEEDOR';
+                if (!especiales[clave]) especiales[clave] = [];
+                especiales[clave].push(partida);
+            }
+
+            function ajustarPartida(partida, nuevaCantidad) {
+                var copia = Object.assign({}, partida);
+                copia.cantidad = nuevaCantidad;
+                copia.total = (nuevaCantidad * parseFloat(copia.precio)).toFixed(2);
+                return copia;
+            }
+
+            function enriquecerDesdeObj(p, obj) {
+                if (!obj) return p;
+                p.clave_proveedor    = (obj.clave_proveedor || '').trim();
+                p.existencia         = parseInt(obj.existencia)         || 0;
+                p.existencia_factura = parseInt(obj.existencia_factura);
+                p.existencia_remision = parseInt(obj.existencia_remision);
+                if (isNaN(p.existencia_factura))  p.existencia_factura  = -1;
+                if (isNaN(p.existencia_remision)) p.existencia_remision = -1;
+                return p;
+            }
+
+            // 1. Partidas normales (table_partidas)
+            var visibles = (typeof table_partidas !== 'undefined') ? table_partidas.getData() : [];
+            for (var i = 0; i < visibles.length; i++) {
+                var p = Object.assign({}, visibles[i]);
+                var obj = (typeof partidas !== 'undefined')
+                    ? partidas.find(function(o) { return o.clave === p.codigo; })
+                    : null;
+                p = enriquecerDesdeObj(p, obj);
+
+                var claveProv = p.clave_proveedor || '';
+                var config = claveProv ? PROVEEDORES_ESPECIALES[claveProv] : null;
+
+                if (!config) {
+                    sae.push(p);
+                    continue;
+                }
+
+                if (config.tipo_separacion === 'todo_especial') {
+                    pushEspecial(claveProv, p);
+                    continue;
+                }
+
+                if (config.tipo_separacion === 'split_por_stock') {
+                    var stockFicticio  = parseInt(config.stock_ficticio) || 0;
+                    var existenciaReal = Math.max(0, (p.existencia || 0) - stockFicticio);
+                    var cantidad       = parseInt(p.cantidad) || 0;
+
+                    if (cantidad <= existenciaReal) {
+                        sae.push(p);
+                    } else if (existenciaReal === 0) {
+                        pushEspecial(claveProv, p);
+                    } else {
+                        sae.push(ajustarPartida(p, existenciaReal));
+                        pushEspecial(claveProv, ajustarPartida(p, cantidad - existenciaReal));
+                    }
+                    continue;
+                }
+
+                // Tipo desconocido — defensivo
+                sae.push(p);
+            }
+
+            // 2. Partidas especiales (table_partidas_especiales) — siempre a especiales[clave]
+            var especialesVisibles = (typeof table_partidas_especiales !== 'undefined') ? table_partidas_especiales.getData() : [];
+            for (var j = 0; j < especialesVisibles.length; j++) {
+                var pe = Object.assign({}, especialesVisibles[j]);
+                var objE = (typeof partidas_especiales !== 'undefined')
+                    ? partidas_especiales.find(function(o) { return o.clave === pe.codigo; })
+                    : null;
+                pe = enriquecerDesdeObj(pe, objE);
+                pushEspecial(pe.clave_proveedor || '', pe);
+            }
+
+            // 3. Consolidar duplicados dentro de cada bucket especial
+            Object.keys(especiales).forEach(function(k) {
+                especiales[k] = consolidarPorCodigo(especiales[k]);
+            });
+
+            return { sae: sae, especiales: especiales };
+        }
+
+        // Suma cantidades y totales de partidas con el mismo codigo,
+        // preservando los demas campos del primer registro.
+        function consolidarPorCodigo(arr) {
+            var mapa = {};
+            for (var i = 0; i < arr.length; i++) {
+                var p = arr[i];
+                var cod = p.codigo;
+                if (!mapa[cod]) {
+                    mapa[cod] = Object.assign({}, p);
+                    mapa[cod].cantidad = parseInt(p.cantidad) || 0;
+                    mapa[cod].total    = parseFloat(p.total)  || 0;
+                } else {
+                    mapa[cod].cantidad += parseInt(p.cantidad) || 0;
+                    mapa[cod].total    += parseFloat(p.total)  || 0;
+                }
+            }
+            return Object.values(mapa).map(function(p) {
+                p.total = parseFloat(p.total).toFixed(2);
+                return p;
+            });
+        }
+
+        function clasificarPorEmpresa(partidasSae, clasif, tipoRadio) {
+            // Decide a qué empresa SAE va cada partida (E01 factura, E03 remision).
+            //
+            // Reglas:
+            //   - Si CLASIFIC tiene W en pos.4 → SIEMPRE split por existencia
+            //     (auto, ignora el radio aunque venga seteado).
+            //   - Si CLASIFIC NO tiene W:
+            //       tipoRadio === 'factura' → todo a E01 (sin importar existencia)
+            //       tipoRadio === 'normal'  → split por existencia (igual que con W)
+            //
+            // Regla del split por existencia (replicada de externos/guardarPedido):
+            //   existencia_remision >= 0  → E03 (remision, precio sin IVA)
+            //   existencia_factura > 0
+            //       AND cantidad <= existencia_factura → E01 (factura, precio con IVA)
+            //   resto → DESCARTADA (bug heredado; se preserva con console.warn)
+            var factura  = [];
+            var remision = [];
+
+            // Cliente sin W con radio "factura" → atajo: todo a factura
+            if (!tieneWEnPos4(clasif) && tipoRadio === 'factura') {
+                return { factura: partidasSae.slice(), remision: remision };
+            }
+
+            // En todos los demas casos: split por existencia
+            for (var i = 0; i < partidasSae.length; i++) {
+                var p        = partidasSae[i];
+                var existRem = parseInt(p.existencia_remision);
+                var existFac = parseInt(p.existencia_factura);
+                var cantidad = parseInt(p.cantidad) || 0;
+
+                if (!isNaN(existRem) && existRem >= 0) {
+                    remision.push(p);
+                } else if (!isNaN(existFac) && existFac > 0 && cantidad <= existFac) {
+                    factura.push(p);
+                } else {
+                    console.warn(
+                        'clasificarPorEmpresa: partida descartada (no cabe en E01 ni E03)',
+                        p
+                    );
+                }
+            }
+
+            return { factura: factura, remision: remision };
+        }
+
+        function tieneWEnPos4(clasif) {
+            // CLIE.CLASIFIC en SAE es VARCHAR(5). Si viene mas corto se padea
+            // con espacios; aqui tambien por seguridad. Posicion 4 (1-based)
+            // = indice 3 (0-based).
+            if (!clasif) return false;
+            var c = String(clasif).padEnd(5, ' ');
+            return c.charAt(3).toUpperCase() === 'W';
+        }
+
+
+        // ──────────────────────────────────────────────────────────────────
+        // HELPERS — ENVIO A ENDPOINTS
+        // ──────────────────────────────────────────────────────────────────
+
+        function capturarEnSoma(cliente, partidas, destinoSucursal) {
+            // POST al proxy local soma.capturar_proxy, que reenvia a SOMA
+            // /api/pedidos/capturar con X-API-Key.
+            //
+            // Fire-and-forget: no esperamos respuesta. Si SOMA cae, el flujo
+            // sigue normal (graceful degradation).
+            //
+            // SOMA recibe TODAS las partidas (cart + cartEspecial) sin separar
+            // y aplica sus propias reglas (politicas, descuentos, division
+            // normal/especial, etc.).
+            //
+            // destino_sucursal:
+            //   'E01'    cuando tipoRadio === 'factura' (forzar empresa 1)
+            //   'TODAS'  cuando tipoRadio === 'normal' o cliente con W
+            try {
+                var idEnvio = (window.crypto && crypto.randomUUID)
+                    ? crypto.randomUUID()
+                    : ('env-' + Date.now() + '-' + Math.random().toString(36).slice(2));
+
+                var partidasParaSoma = (partidas || []).map(function(p) {
+                    return { clave: p.codigo, cantidad: parseInt(p.cantidad) || 0 };
+                });
+
+                var payload = {
+                    clave_cliente:     cliente.clave,
+                    partidas:          partidasParaSoma,
+                    origen:            'TELEMARKETING',
+                    id_envio_externo:  idEnvio,
+                    destino_sucursal:  destinoSucursal || 'TODAS',
+                    gran_total_origen: calcularGranTotalActual(),
+                };
+
+                fetch("{{ route('soma.capturar_proxy') }}", {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type':     'application/json',
+                        'Accept':           'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRF-TOKEN':     '{{ csrf_token() }}',
+                    },
+                    body: JSON.stringify(payload),
+                }).catch(function(err) {
+                    console.warn('capturarEnSoma fallo:', err);
+                });
+            } catch (e) {
+                console.warn('capturarEnSoma excepcion:', e);
+            }
+        }
+
+        async function consultarRegalo(cliente) {
+            // POST /somma/v2.0/api/promociones-regalo/evaluar para saber si
+            // este pedido aplica a alguna promo de regalo activa.
+            //
+            // En telemkt mandamos origen='telemarketing'; SOMA mapea a
+            // aplica_mostrador (cubre tambien mostrador, son el mismo canal).
+            //
+            // El caller (este JS) ya tiene CLASIFIC y CAMPLIB3 enriquecidos en
+            // el cliente; los pasa al payload para que SOMA matchee audiencia
+            // sin volver a consultar SAE.
+            //
+            // Devuelve la partida_regalo lista para meter al bucket sae si
+            // SOMA responde aplica:true. Null en cualquier otro caso —
+            // incluyendo timeouts, errores de red o respuestas raras.
+            // Graceful degradation: si SOMA truena, el pedido se guarda sin
+            // regalo y el vendedor no ve un error.
+            try {
+                var granTotal = calcularGranTotalActual();
+
+                var payload = {
+                    clave_cliente: cliente.clave,
+                    gran_total:    granTotal,
+                    origen:        'telemarketing',
+                    campolibre:    (cliente.CAMPLIB3 || '').toString().trim(),
+                    clasificacion: (cliente.CLASIFIC || '').toString().trim(),
+                };
+
+                var resp = await fetch(
+                    'https://owari.appsoma.online/somma/v2.0/api/promociones-regalo/evaluar',
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept':       'application/json',
+                        },
+                        body: JSON.stringify(payload),
+                    }
+                );
+
+                if (!resp.ok) {
+                    console.warn('consultarRegalo: SOMA respondio HTTP', resp.status);
+                    return null;
+                }
+
+                var data = await resp.json();
+                if (!data || !data.aplica || !data.partida_regalo) {
+                    return null;
+                }
+
+                var pr = data.partida_regalo;
+                // El regalo se trata como partida normal de SAE, dirigida a
+                // empresa 1 (factura). existencia_remision=-1 evita que vaya
+                // a E03; existencia_factura=999 garantiza que clasificarPorEmpresa
+                // la mande a E01.
+                return {
+                    codigo:               String(pr.clave || ''),
+                    descripcion:          (data.promocion && data.promocion.nombre) || 'Regalo promocional',
+                    cantidad:             parseInt(pr.cantidad) || 1,
+                    precio:               parseFloat(pr.precio || 0.01).toFixed(2),
+                    precio_iva:           parseFloat(pr.precio || 0.01).toFixed(2),
+                    total:                parseFloat(pr.total  || 0.01).toFixed(2),
+                    existencia:           999,
+                    existencia_factura:   999,
+                    existencia_remision: -1,
+                    clave_proveedor:     '',
+                    es_regalo:           true,
+                };
+            } catch (e) {
+                console.warn('consultarRegalo fallo:', e);
+                return null;
+            }
+        }
+
+        // Suma el total visible de table_partidas + table_partidas_especiales.
+        // Usado por consultarRegalo y capturarEnSoma para mandar el monto del
+        // pedido a los endpoints de SOMA.
+        function calcularGranTotalActual() {
+            var total = 0;
+            var t1 = (typeof table_partidas !== 'undefined') ? table_partidas.getData() : [];
+            var t2 = (typeof table_partidas_especiales !== 'undefined') ? table_partidas_especiales.getData() : [];
+            t1.forEach(function(p) { total += parseFloat(p.total) || 0; });
+            t2.forEach(function(p) { total += parseFloat(p.total) || 0; });
+            return total;
+        }
+
+        async function guardarEspecialesGenerales(especialesPorProveedor, claveCliente) {
+            // Itera el mapa { claveProveedor: [partidas], ... } y por cada
+            // grupo hace UN POST a pedidos.guardar_especial con clave_proveedor.
+            //
+            // Cubre S227 (SYD), AAAA y cualquier proveedor futuro. El backend
+            // distingue por clave_proveedor para el subject del email
+            // (Pedido especial SYD vs Pedido especial).
+            //
+            // Si una llamada truena, loguea warning y continua con las demas
+            // — no bloquea el flujo. Vendedor verá los especiales que sí
+            // se registraron y los que fallaron quedan en log.
+            if (!especialesPorProveedor) return;
+
+            var claves = Object.keys(especialesPorProveedor);
+            for (var i = 0; i < claves.length; i++) {
+                var claveProveedor = claves[i];
+                var partidasGrupo  = especialesPorProveedor[claveProveedor] || [];
+                if (partidasGrupo.length === 0) continue;
+
+                var data = {
+                    '_token':  '{{ csrf_token() }}',
+                    cliente:   claveCliente,
+                    partidas:  partidasGrupo,
+                };
+                if (claveProveedor && claveProveedor !== 'SIN_PROVEEDOR') {
+                    data.clave_proveedor = claveProveedor;
+                }
+
+                await guardarEspecialUnGrupo(data, claveProveedor);
+            }
+        }
+
+        // Wrapper que envuelve $.post en una Promise para usar con await,
+        // y no truena el flujo si una falla — solo loguea warning.
+        function guardarEspecialUnGrupo(data, claveProveedor) {
+            return new Promise(function(resolve) {
+                $.post("{{ route('pedidos.guardar_especial') }}", data)
+                    .done(function() { resolve(); })
+                    .fail(function(xhr) {
+                        console.warn(
+                            'guardarEspecialesGenerales fallo proveedor=' + claveProveedor,
+                            xhr && xhr.status,
+                            xhr && xhr.responseText
+                        );
+                        resolve();   // continuar con el siguiente proveedor
+                    });
+            });
+        }
+
+        // ──────────────────────────────────────────────────────────────────
+        // HELPERS — INSERCION SAE CON CHUNKS Y REINTENTOS
+        // ──────────────────────────────────────────────────────────────────
+
+        async function insertarEnSaeConRetry(partidas, empresa, claveCliente) {
+            // Inserta en SAE empresa 1 (factura) o 3 (remision).
+            // Divide partidas en chunks de CHUNK_SIZE_SAE (30) y procesa
+            // secuencial. Cada chunk con retry interno automatico (5 intentos
+            // con 2s entre cada uno) y, si todos fallan, pregunta al vendedor
+            // si quiere reintentar manualmente.
+            //
+            // Devuelve array de folios SAE generados (uno por chunk exitoso).
+            //
+            // Si el vendedor cancela en cualquier chunk, propaga la excepcion
+            // al orquestador que la captura en mostrarError.
+            if (!partidas || partidas.length === 0) return [];
+
+            // Activar el panel de progreso por chunks en el modal
+            $('#pedidos_finales').css('display', 'block');
+
+            var chunks   = dividirEnChunks(partidas, CHUNK_SIZE_SAE);
+            var usuario  = '{{ \Auth::user()->name }}';
+            var suPedido = $('#su_pedido').val() || '';
+            var folios   = [];
+
+            // Anuncio inicial en el panel de la empresa
+            $('#guardar_pedido_' + empresa).html(
+                '<b>Empresa ' + empresa + ':</b> ' + chunks.length +
+                ' pedido' + (chunks.length > 1 ? 's' : '') + ' a procesar<br>'
+            );
+
+            for (var i = 0; i < chunks.length; i++) {
+                var folio = await insertarChunkConReintentosManuales(
+                    chunks[i], empresa, i + 1, chunks.length,
+                    claveCliente, usuario, suPedido
+                );
+                folios.push(folio);
+            }
+            return folios;
+        }
+
+        async function insertarChunkConReintentosManuales(chunk, empresa, idx, total, claveCliente, usuario, suPedido) {
+            // Loop infinito: 5 retries automaticos, luego pregunta al vendedor
+            // si quiere reintentar. Si el vendedor cancela, throw.
+            // Si el chunk pasa (interno o tras reintentar), append exito en
+            // el modal y devuelve el folio.
+            while (true) {
+                var resultado = await intentarChunkConRetryInterno(
+                    chunk, empresa, claveCliente, usuario, suPedido
+                );
+                if (resultado.exito) {
+                    $('#guardar_pedido_' + empresa).append(
+                        '<div class="text-success"><small>&nbsp;&nbsp;✓ Pedido ' + idx + '/' + total +
+                        ': <b>' + resultado.folio + '</b></small></div>'
+                    );
+                    return resultado.folio;
+                }
+
+                // 5 retries internos fallaron → vendedor decide
+                var quiereReintentar = await mostrarOpcionReintentar(empresa, idx, total, resultado.error);
+                if (!quiereReintentar) {
+                    throw new Error(
+                        'Cancelado por el vendedor en pedido ' + idx + '/' + total +
+                        ' de E' + empresa
+                    );
+                }
+                // Si dijo si, el while loop vuelve a intentar
+            }
+        }
+
+        async function intentarChunkConRetryInterno(chunk, empresa, claveCliente, usuario, suPedido) {
+            // 5 reintentos automaticos con dormir(2s) entre cada uno.
+            // Devuelve {exito:true, folio} en caso de exito,
+            // {exito:false, error} si todos los reintentos fallan.
+            var ultimoError = null;
+            for (var intento = 1; intento <= MAX_INTENTOS_SAE; intento++) {
+                try {
+                    var folio = await intentarInsercionSae(chunk, empresa, claveCliente, usuario, suPedido);
+                    if (intento > 1) {
+                        console.log('intentarChunkConRetryInterno exito en intento ' + intento + '/' + MAX_INTENTOS_SAE);
+                    }
+                    return { exito: true, folio: folio };
+                } catch (err) {
+                    ultimoError = err;
+                    console.warn(
+                        'intentarChunkConRetryInterno empresa=' + empresa +
+                        ' intento=' + intento + '/' + MAX_INTENTOS_SAE +
+                        ' fallo:', err.message
+                    );
+                    if (intento < MAX_INTENTOS_SAE) {
+                        await dormir(ESPERA_ENTRE_INTENTOS_MS);
+                    }
+                }
+            }
+            return { exito: false, error: ultimoError ? ultimoError.message : 'desconocido' };
+        }
+
+        async function intentarInsercionSae(partidas, empresa, claveCliente, usuario, suPedido) {
+            // Un solo POST a /catalowari/api/guardar_v2. Sin retry interno.
+            // Lanza Error en cualquier falla; el llamador maneja retries.
+            var partidasParaSae = (partidas || []).map(function(p) {
+                return partidaParaSae(p, empresa);
+            });
+
+            var payload = {
+                empresa:   empresa,
+                cliente:   claveCliente,
+                usuario:   usuario || '',
+                su_pedido: suPedido || '',
+                partidas:  partidasParaSae,
+            };
+
+            var resp = await fetch(
+                'https://sistemasowari.com:8443/catalowari/api/guardar_v2',
+                {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept':       'application/json',
+                    },
+                    body: JSON.stringify(payload),
+                }
+            );
+
+            if (!resp.ok) {
+                throw new Error('SAE respondio HTTP ' + resp.status);
+            }
+
+            var data = await resp.json();
+            if (!data || data.code !== 1 || !data.pedido) {
+                throw new Error('SAE rechazo: ' + ((data && data.mensaje) || 'sin mensaje'));
+            }
+
+            return data.pedido;   // ej. "4W12345"
+        }
+
+        function partidaParaSae(p, empresa) {
+            // Reglas del contrato guardar_v2:
+            //   empresa 1 (factura): precio sin IVA, total con IVA (SAE pone IMPU4=16)
+            //   empresa 3 (remision): precio sin IVA, total = precio*cantidad (sin IVA)
+            var cantidad     = parseInt(p.cantidad) || 0;
+            var precioSinIva = parseFloat(p.precio_iva) || 0;
+            var totalConIva  = parseFloat(p.total) || 0;
+
+            return {
+                clave:    p.codigo,
+                cantidad: cantidad,
+                precio:   precioSinIva,
+                total:    empresa === 1 ? totalConIva : (precioSinIva * cantidad),
+            };
+        }
+
+        function dividirEnChunks(arr, n) {
+            var chunks = [];
+            for (var i = 0; i < arr.length; i += n) {
+                chunks.push(arr.slice(i, i + n));
+            }
+            return chunks;
+        }
+
+        async function insertarChunkConReintentosManuales(chunk, empresa, idx, total, claveCliente, usuario, suPedido) {
+            // TODO Fase 9: while(true) { 5 retries; si falla -> mostrarOpcionReintentar; si dice si, otros 5; si dice no, throw }
+            throw new Error('insertarChunkConReintentosManuales no implementado (Fase 9)');
+        }
+
+        async function intentarChunkConRetryInterno(chunk, empresa, claveCliente, usuario, suPedido) {
+            // TODO Fase 9: 5 retries automaticos al guardar_v2 con dormir(2s) entre cada uno.
+            // Devuelve { exito:true, folio } o { exito:false, error }
+            throw new Error('intentarChunkConRetryInterno no implementado (Fase 9)');
+        }
+
+        async function intentarInsercionSae(partidas, empresa, claveCliente, usuario, suPedido) {
+            // TODO Fase 9: un solo POST a /catalowari/api/guardar_v2.
+            // Lanza Error en cualquier falla. Devuelve folio en exito.
+            throw new Error('intentarInsercionSae no implementado (Fase 9)');
+        }
+
+        function partidaParaSae(p, empresa) {
+            // TODO Fase 9: adapta shape para guardar_v2.
+            //   empresa 1: precio sin IVA, total con IVA
+            //   empresa 3: precio sin IVA, total sin IVA
+            throw new Error('partidaParaSae no implementado (Fase 9)');
+        }
+
+        async function guardarPedidoLocal(payload) {
+            // POST al endpoint existente pedidos.guardar para crear el
+            // espejo del pedido en la tabla `pedidos` (modelo Pedido).
+            //
+            // Notas:
+            //   - El endpoint guarda el request completo en la columna
+            //     `entrada` (JSON), asi que todos los campos v2 viajan ahi.
+            //   - El endpoint TAMBIEN intenta clasificar partidas en
+            //     partidas_a/partidas_b, pero como nuestro v2 ya hizo la
+            //     clasificacion correcta con clasificarPorEmpresa,
+            //     ignoramos esos campos de la respuesta.
+            //   - Pasamos partidas_detalle vacio para que el endpoint no
+            //     duplique trabajo.
+            //   - Mantenemos compat (cliente como objeto, tipo del radio).
+            //
+            // Devuelve el id_pedido local para poder mostrar resumen al
+            // vendedor en mostrarExito.
+            var data = {
+                '_token':           '{{ csrf_token() }}',
+                usuario:            '{{ \Auth::user()->name }}',
+                cliente:            { clave: payload.cliente },
+                partidas:           payload.partidas_sae || [],
+                partidas_detalle:   [],   // v2 ya clasifico
+                su_pedido:          $('#su_pedido').val() || '',
+                tipo:               payload.tipo_radio || 'normal',
+
+                // Campos v2 — quedan registrados en `entrada` JSON para auditoria
+                folios_factura:     payload.folios_factura  || [],
+                folios_remision:    payload.folios_remision || [],
+                especiales_resumen: payload.especiales      || {},
+                regalo:             payload.regalo          || null,
+                tipo_radio:         payload.tipo_radio      || null,
+                es_v2:              true,
+            };
+
+            return new Promise(function(resolve, reject) {
+                $.post("{{ route('pedidos.guardar') }}", data)
+                    .done(function(resp) {
+                        try {
+                            var r = (typeof resp === 'string') ? JSON.parse(resp) : resp;
+                            if (r && r.code) {
+                                resolve(r.id_pedido);
+                            } else {
+                                reject(new Error('No se pudo registrar el pedido en el espejo local'));
+                            }
+                        } catch (e) {
+                            reject(new Error('Respuesta invalida del espejo local'));
+                        }
+                    })
+                    .fail(function(xhr) {
+                        console.warn('guardarPedidoLocal fallo', xhr && xhr.status);
+                        reject(new Error('Error de red al registrar el espejo local'));
+                    });
+            });
+        }
+
 
 
 
@@ -1590,90 +2126,115 @@
 
         }
 
-        $(".tipo_cliente").click(function () {
-            reiniciarVenta()
-            var tipo_cliente = $(this).val();
-            var url = "";
-            if (tipo_cliente == 'factura') {
-                url = "https://sistemasowari.com:8443/catalowari/api/clientes_factura"
-            }
-            if (tipo_cliente == "normal") {
-                url = "https://sistemasowari.com:8443/catalowari/api/clientes"
-            }
-            $('.seleccionar_cliente').css('display', 'none');
+        // ──────────────────────────────────────────────────────────────────
+        // Inicializacion del formulario (Fase 4 del refactor v2)
+        // ──────────────────────────────────────────────────────────────────
+        // Antes: el vendedor primero elegia radio (normal/factura) y eso
+        // disparaba la carga de clientes. Ahora:
+        //   1. Al cargar la pagina, lista UNICA desde /api/clientes_factura
+        //   2. Vendedor elige cliente del select
+        //   3. Se enriquece con CLASIFIC y CAMPLIB3 (datos_cliente)
+        //   4. Si CLASIFIC tiene W en pos.4 → ocultar radios (auto E01/E03)
+        //      Si NO tiene W → mostrar radios para elegir normal/factura
+        // El handler viejo de .tipo_cliente.click se conserva abajo solo para
+        // hacer reiniciarVenta() cuando el vendedor cambia entre los radios.
+        // ──────────────────────────────────────────────────────────────────
+
+        function inicializarFormularioPedido() {
             $.get(
-                url, { vendedor: '' },
+                'https://sistemasowari.com:8443/catalowari/api/clientes_factura',
+                { vendedor: '' },
                 function (data) {
                     var obj = jQuery.parseJSON(data);
                     clientes = obj;
 
-                    $("#cliente").html('<option value="-1">Selecciona o busca un cliente</option>')
+                    $("#cliente").html('<option value="-1">Selecciona o busca un cliente</option>');
                     $.each(obj, function (i, val) {
                         $("#cliente").append(
-                            '<option value="' +
-                            i +
-                            '">' +
-                            val.clave +
-                            " " +
-                            val.nombre +
-                            "</option>"
+                            '<option value="' + i + '">' + val.clave + ' ' + val.nombre + '</option>'
                         );
                     });
 
-
-
-
                     $('.seleccionar_cliente').css('display', 'block');
+
                     $("#cliente").val('-1')
                         .chosen({ no_results_text: "Oops, no hay resultados!" })
-                        .change(function () {
-                            seleccion = false;
-                            var indice = $(this).val();
-                            clave_cliente = clientes[indice].clave;
-                            empresa_cliente = clientes[indice].EMPRESA;
-
-                            reiniciarVenta();
-
-
-                            $("#datos_cliente").html(
-                                `
-                                            <div>
-                                                <label>Clave:</label>
-                                                <small>` +
-                                clientes[indice].clave +
-                                `</small>
-                                            </div>
-                                            <div>
-                                                <label>Nombre:</label>
-                                                <small>` +
-                                clientes[indice].nombre +
-                                `</small>
-                                            </div>
-                                            `
-                            );
-                            $(".mostrar_busqueda,.partidas").show();
-                            setTimeout(() => {
-                                $("#palabras_clave").val("").focus();
-                            }, 500);
-                        }).trigger('chosen:updated').trigger('chosen:activate');
-
-
-
-
-
-
+                        .change(onClienteSeleccionadoEnSelect)
+                        .trigger('chosen:updated')
+                        .trigger('chosen:activate');
                 }
             );
+        }
+
+        async function onClienteSeleccionadoEnSelect() {
+            seleccion = false;
+            var indice = $("#cliente").val();
+            if (indice === undefined || parseInt(indice) < 0) return;
+
+            var cliente = clientes[indice];
+            clave_cliente = cliente.clave;
+            empresa_cliente = cliente.EMPRESA;
+
+            reiniciarVenta();
+
+            // Enriquecer con CLASIFIC y CAMPLIB3 desde SAE.
+            // datos_cliente devuelve el row crudo de CLIE01 LEFT JOIN CLIE_CLIB01.
+            try {
+                var resp = await fetch(
+                    'https://sistemasowari.com:8443/catalowari/api/datos_cliente?clave=' +
+                    encodeURIComponent(cliente.clave)
+                );
+                if (resp.ok) {
+                    var datos = await resp.json();
+                    if (datos && datos.CLAVE) {
+                        cliente.CLASIFIC = (datos.CLASIFIC || '').toString().trim();
+                        cliente.CAMPLIB3 = (datos.CAMPLIB3 || '').toString().trim();
+                        clientes[indice] = cliente;   // persiste enriquecimiento
+                    }
+                }
+            } catch (e) {
+                console.warn('No se pudo enriquecer cliente con CLASIFIC:', e);
+            }
+
+            // Decidir radios segun W en pos.4 de CLASIFIC
+            if (tieneWEnPos4(cliente.CLASIFIC || '')) {
+                $('#radios_tipo_pedido').hide();
+                // Forzar 'normal' (oculto) por compat con guardar_pedido viejo
+                // que aun lee el radio. El v2 detecta W e ignora el radio.
+                $('#pedido_normal').prop('checked', true);
+            } else {
+                $('#radios_tipo_pedido').show();
+                if (!$("input:radio[name='tipo_pedido']:checked").val()) {
+                    $('#pedido_normal').prop('checked', true);
+                }
+            }
+
+            $("#datos_cliente").html(
+                '<div><label>Clave:</label><small>&nbsp;' + cliente.clave + '</small></div>' +
+                '<div><label>Nombre:</label><small>&nbsp;' + cliente.nombre + '</small></div>' +
+                (cliente.CLASIFIC
+                    ? '<div><label>Clasificacion:</label><small>&nbsp;' + cliente.CLASIFIC + '</small></div>'
+                    : '')
+            );
+
+            $(".mostrar_busqueda,.partidas").show();
+            setTimeout(function () {
+                $("#palabras_clave").val("").focus();
+            }, 500);
+        }
+
+        // Al cargar la pagina, traer la lista de clientes y montar el select.
+        $(document).ready(function () {
+            inicializarFormularioPedido();
         });
 
+        // El handler viejo .tipo_cliente.click ya NO carga clientes (lista unica
+        // desde init). Solo reinicia las partidas si el vendedor cambia entre
+        // los radios visibles (clientes sin W).
+        $(".tipo_cliente").click(function () {
+            reiniciarVenta();
+        });
 
-        function dividirEnPartes(arr, n) {
-            var resultado = [];
-            for (var i = 0; i < arr.length; i += n) {
-                resultado.push(arr.slice(i, i + n));
-            }
-            return resultado;
-        }
 
         $('.terminar').click(function (event) {
             /* Act on the event */
@@ -1709,10 +2270,11 @@
             font-weight: bold;
         }
 
-        .mostrar_busqueda,
-        .seleccionar_cliente {
+        .mostrar_busqueda {
             display: none;
         }
+        /* .seleccionar_cliente ya NO se oculta — el select de cliente esta
+           visible desde que carga la pagina. */
 
         #resultados_producto {
             color: blue;

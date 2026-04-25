@@ -49,7 +49,15 @@
                                                 @php $esSyd = !empty($pedido->es_syd); @endphp
                                                 <tr>
                                                     <td class="{{ $esSyd ? 'enlace_pedido_especial' : 'enlace_pedido' }}" data-pedido="{{ $pedido->id }}">
-                                                        <b>{{ $esSyd ? ('EN PROCESO') : $pedido->pedido_sae }}</b></td>
+                                                        @if($esSyd)
+                                                            <b>EN PROCESO</b>
+                                                        @else
+                                                            <b>{{ $pedido->pedido_sae ?: '—' }}</b>
+                                                            @if(!empty($pedido->pedido_sae_remision))
+                                                                <br><b style="color:#777;font-size:12px;">Remisión: {{ $pedido->pedido_sae_remision }}</b>
+                                                            @endif
+                                                        @endif
+                                                    </td>
                                                     <td class="{{ $esSyd ? 'enlace_pedido_especial' : 'enlace_pedido' }}" data-pedido="{{ $pedido->id }}">
                                                         {{ $esSyd ? 'EN PROCESO' : $pedido->estado }}</td>
                                                     <td class="{{ $esSyd ? 'enlace_pedido_especial' : 'enlace_pedido' }}" data-pedido="{{ $pedido->id }}">
@@ -70,12 +78,23 @@
                                                         @endif
                                                     </td>
                                                     <td>
-                                                        @if(!$esSyd)
-                                                            <button class="revisar_factura btn-primary"
-                                                                style="color:white; background-color:#d31531;"
-                                                                data-pedido="{{ $pedido->pedido_sae }}">Revisar factura(s)</button>
-                                                        @else
+                                                        @if($esSyd)
                                                             <span class="text-muted" style="font-size:12px;">N/A</span>
+                                                        @else
+                                                            @if(!empty($pedido->pedido_sae))
+                                                                <button class="revisar_factura btn-primary"
+                                                                    style="color:white; background-color:#d31531;"
+                                                                    data-pedido="{{ $pedido->pedido_sae }}">
+                                                                    Revisar factura(s)
+                                                                </button>
+                                                            @endif
+                                                            @if(!empty($pedido->pedido_sae_remision))
+                                                                <button class="revisar_factura btn-primary"
+                                                                    style="color:white; background-color:#777; margin-top:5px; font-size:12px;"
+                                                                    data-pedido="{{ $pedido->pedido_sae_remision }}">
+                                                                    Remisión {{ $pedido->pedido_sae_remision }}
+                                                                </button>
+                                                            @endif
                                                         @endif
                                                     </td>
                                                 </tr>

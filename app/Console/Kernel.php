@@ -15,7 +15,12 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule(Schedule $schedule)
     {
-        // $schedule->command('inspire')->hourly();
+        // Reintenta los pedidos SAE que el carrito dejo en cola tras
+        // sus 5 reintentos en frontend.
+        $schedule->command('pedidos:procesar-sae-pendientes')
+                 ->everyFiveMinutes()
+                 ->withoutOverlapping()
+                 ->runInBackground();
     }
 
     /**

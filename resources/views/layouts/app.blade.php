@@ -173,6 +173,11 @@
                                     <i class="bi bi-cart-check"></i>&nbsp;{{ __('Ver pedidos pendientes de aprobación') }}
                                 </a>
                                 @endcan
+                                @can('pedidos_ver')
+                                <a class="dropdown-item" href="{{ route('pedidos_sae_pendientes.index') }}">
+                                    <i class="bi bi-hourglass-split"></i>&nbsp;{{ __('Pedidos SAE pendientes (cola)') }}
+                                </a>
+                                @endcan
                                  @can('pedidos_crear')
                                 <a class="dropdown-item" href="{{ route('pedidos.crear') }}">
                                     <i class="bi bi-file-earmark-plus-fill"></i>&nbsp;{{ __('Crear pedido') }}

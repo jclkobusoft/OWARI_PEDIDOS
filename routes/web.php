@@ -50,6 +50,13 @@ Route::get('/pedidos/busqueda', [App\Http\Controllers\PedidosController::class, 
 Route::get('/pedidos/demo', [App\Http\Controllers\PedidosController::class, 'demo'])->name('pedidos.demo');
 Route::post('/pedidos/guardar', [App\Http\Controllers\PedidosController::class, 'guardar'])->name('pedidos.guardar');
 Route::post('/soma/capturar-proxy', [App\Http\Controllers\PedidosController::class, 'proxyCapturarSoma'])->name('soma.capturar_proxy');
+Route::post('/pedidos/encolar-sae-pendiente', [App\Http\Controllers\PedidosController::class, 'encolarSaePendiente'])->name('pedidos.encolar_sae_pendiente');
+
+// UI de la cola de pedidos SAE pendientes
+Route::get('/pedidos-sae-pendientes',                 [App\Http\Controllers\PedidosController::class, 'saePendientesIndex'])->name('pedidos_sae_pendientes.index');
+Route::get('/pedidos-sae-pendientes/{id}/detalle',    [App\Http\Controllers\PedidosController::class, 'saePendienteDetalle'])->name('pedidos_sae_pendientes.detalle');
+Route::post('/pedidos-sae-pendientes/{id}/reintentar', [App\Http\Controllers\PedidosController::class, 'saePendienteReintentar'])->name('pedidos_sae_pendientes.reintentar');
+Route::post('/pedidos-sae-pendientes/{id}/cancelar',   [App\Http\Controllers\PedidosController::class, 'saePendienteCancelar'])->name('pedidos_sae_pendientes.cancelar');
 Route::post('pedidos/guardar_especial', [App\Http\Controllers\PedidosController::class, 'guardarPedidoEspecial'])->name('pedidos.guardar_especial');
 
 Route::post('pedidos/guardar_pedido_pendiente_web', [App\Http\Controllers\PedidosController::class, 'guardarPedidoPendienteWeb'])->name('pedidos.guardar_pedido_pendiente_web');

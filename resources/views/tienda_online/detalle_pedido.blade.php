@@ -5,7 +5,10 @@
                 <div class="row">
                     <div class="col-lg-12 col-md-12">
                         <div class="mb-30">
-                                <h2>Pedido: {{ $pedido->pedido_sae }}</h2>
+                                <h2>Pedido: {{ $pedido->pedido_sae ?: '—' }}</h2>
+                                @if(!empty($pedido->pedido_sae_remision))
+                                    <h5 class="text-muted">Remisión: {{ $pedido->pedido_sae_remision }}</h5>
+                                @endif
                                 <h4>Estado: {{ $pedido->estado }}</h4>
                                 <h4>Creado el: {{  \Carbon::createFromFormat('Y-m-d H:i:s',$pedido->created_at)->format('d/m/Y h:i A')  }}</h4>
                                 <div class="table-responsive" style="margin-top: 20px;">

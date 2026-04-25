@@ -6,9 +6,12 @@ use Illuminate\Http\Request;
 use App\Models\Pedido;
 use App\Models\PedidoEspecial;
 use App\Models\PedidoEspecialPartida;
+use App\Models\PedidoSaePendiente;
+use App\Models\PedidoWeb;
 use App\Models\ProductoBusqueda;
 use App\Models\PedidoPendiente;
 use App\Models\Registrado;
+use App\DataTables\PedidosSaePendientesDataTable;
 use Barryvdh\DomPDF\Facade\Pdf;
 use App\Exports\PedidoEspecialPartidasExport;
 use App\Exports\PedidoPendienteExport;
@@ -459,6 +462,180 @@ class PedidosController extends Controller
 
         $decoded = json_decode($body, true);
         return response()->json($decoded ?: ['response' => 0, 'message' => 'Respuesta SOMA no JSON', 'raw' => $body], $status);
+    }
+
+    /**
+     * Encola un pedido SAE que el frontend no logro insertar tras 5 reintentos.
+     * Un comando artisan (pedidos:procesar-sae-pendientes) lo retomara despues
+     * y lo intentara hasta lograrlo o marcarlo como fallido.
+     *
+     * El payload debe ser identico al que recibiria /catalowari/api/guardar_v2
+     * para poder reintentar tal cual.
+     */
+    public function encolarSaePendiente(Request $r)
+    {
+        $r->validate([
+            'cliente'       => 'required|string|max:50',
+            'empresa'       => 'required|integer|in:1,3',
+            'usuario'       => 'nullable|string|max:100',
+            'su_pedido'     => 'nullable|string|max:50',
+            'partidas'      => 'required|array|min:1',
+            'ultimo_error'  => 'nullable|string',
+            'id_pedido_web' => 'nullable|integer',
+        ]);
+
+        $payload = [
+            'empresa'   => intval($r->input('empresa')),
+            'cliente'   => $r->input('cliente'),
+            'usuario'   => $r->input('usuario', \Auth::user()->name ?? ''),
+            'su_pedido' => $r->input('su_pedido', ''),
+            'partidas'  => $r->input('partidas'),
+        ];
+
+        $pendiente = PedidoSaePendiente::create([
+            'cliente'       => $r->input('cliente'),
+            'empresa'       => intval($r->input('empresa')),
+            'payload'       => $payload,
+            'intentos'      => 0,
+            'ultimo_error'  => $r->input('ultimo_error'),
+            'estado'        => PedidoSaePendiente::ESTADO_PENDIENTE,
+            'id_pedido_web' => $r->input('id_pedido_web'),
+        ]);
+
+        return response()->json([
+            'code'         => 1,
+            'id_pendiente' => $pendiente->id,
+            'mensaje'      => 'Pedido encolado para reintento',
+        ]);
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // UI: Cola de pedidos SAE pendientes
+    // ────────────────────────────────────────────────────────────────────
+
+    public function saePendientesIndex(PedidosSaePendientesDataTable $dataTable)
+    {
+        // Conteos por estado para los chips de la cabecera
+        $conteos = PedidoSaePendiente::selectRaw('estado, COUNT(*) as total')
+            ->groupBy('estado')
+            ->pluck('total', 'estado')
+            ->toArray();
+
+        return $dataTable->render('pedidos_sae_pendientes.index', compact('conteos'));
+    }
+
+    public function saePendienteDetalle(Request $r, $id)
+    {
+        $pendiente = PedidoSaePendiente::find($id);
+        if (!$pendiente) {
+            return response()->json(['code' => 0, 'mensaje' => 'No encontrado'], 404);
+        }
+        return response()->json([
+            'code'      => 1,
+            'pendiente' => $pendiente,
+        ]);
+    }
+
+    /**
+     * Reintenta un pendiente especifico de forma sincrona desde la UI.
+     * Usa la misma logica del comando artisan pero contra UN registro.
+     */
+    public function saePendienteReintentar(Request $r, $id)
+    {
+        $pendiente = PedidoSaePendiente::find($id);
+        if (!$pendiente) {
+            return response()->json(['code' => 0, 'mensaje' => 'No encontrado'], 404);
+        }
+
+        // Lock optimista
+        $pendiente->estado = PedidoSaePendiente::ESTADO_EN_PROCESO;
+        $pendiente->save();
+
+        $payload = $pendiente->payload;
+
+        $ch = curl_init('https://sistemasowari.com:8443/catalowari/api/guardar_v2');
+        curl_setopt_array($ch, [
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => json_encode($payload),
+            CURLOPT_HTTPHEADER     => ['Content-Type: application/json', 'Accept: application/json'],
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYHOST => false,
+            CURLOPT_TIMEOUT        => 30,
+        ]);
+        $body   = curl_exec($ch);
+        $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err    = curl_error($ch);
+        curl_close($ch);
+
+        if ($body === false || $status === 0) {
+            $pendiente->fill([
+                'estado'       => PedidoSaePendiente::ESTADO_PENDIENTE,
+                'intentos'     => $pendiente->intentos + 1,
+                'ultimo_error' => 'cURL: ' . $err,
+            ])->save();
+            return response()->json(['code' => 0, 'mensaje' => 'Error de red al contactar SAE: ' . $err]);
+        }
+
+        if ($status >= 400) {
+            $pendiente->fill([
+                'estado'       => PedidoSaePendiente::ESTADO_PENDIENTE,
+                'intentos'     => $pendiente->intentos + 1,
+                'ultimo_error' => 'HTTP ' . $status . ': ' . substr($body, 0, 500),
+            ])->save();
+            return response()->json(['code' => 0, 'mensaje' => 'SAE respondio HTTP ' . $status]);
+        }
+
+        $data = json_decode($body, true);
+        if (!is_array($data) || ($data['code'] ?? 0) !== 1 || empty($data['pedido'])) {
+            $pendiente->fill([
+                'estado'       => PedidoSaePendiente::ESTADO_PENDIENTE,
+                'intentos'     => $pendiente->intentos + 1,
+                'ultimo_error' => 'SAE rechazo: ' . ($data['mensaje'] ?? substr($body, 0, 500)),
+            ])->save();
+            return response()->json(['code' => 0, 'mensaje' => 'SAE rechazo: ' . ($data['mensaje'] ?? 'desconocido')]);
+        }
+
+        // Exito
+        $folio = $data['pedido'];
+        $pendiente->fill([
+            'estado'       => PedidoSaePendiente::ESTADO_COMPLETADO,
+            'folio_sae'    => $folio,
+            'intentos'     => $pendiente->intentos + 1,
+            'completed_at' => now(),
+        ])->save();
+
+        // Si esta enlazado a un PedidoWeb, actualizar la columna correspondiente
+        // segun la empresa: empresa 1 → pedido_sae (factura, existente),
+        // empresa 3 → pedido_sae_remision (nuevo).
+        if ($pendiente->id_pedido_web) {
+            $espejo = PedidoWeb::find($pendiente->id_pedido_web);
+            if ($espejo) {
+                $columna = ($pendiente->empresa == 3) ? 'pedido_sae_remision' : 'pedido_sae';
+                $valorActual = $espejo->{$columna} ?? null;
+                if (empty($valorActual) || $valorActual === '0' || $valorActual === 0) {
+                    $espejo->{$columna} = $folio;
+                    $espejo->save();
+                }
+            }
+        }
+
+        return response()->json(['code' => 1, 'mensaje' => 'SAE acepto el pedido', 'folio' => $folio]);
+    }
+
+    public function saePendienteCancelar(Request $r, $id)
+    {
+        $pendiente = PedidoSaePendiente::find($id);
+        if (!$pendiente) {
+            return response()->json(['code' => 0, 'mensaje' => 'No encontrado'], 404);
+        }
+
+        $pendiente->fill([
+            'estado'       => PedidoSaePendiente::ESTADO_FALLIDO,
+            'ultimo_error' => 'Marcado como fallido manualmente por ' . (\Auth::user()->name ?? 'sistema'),
+        ])->save();
+
+        return response()->json(['code' => 1, 'mensaje' => 'Pendiente marcado como fallido']);
     }
 
 }

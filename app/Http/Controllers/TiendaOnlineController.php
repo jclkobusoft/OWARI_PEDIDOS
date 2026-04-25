@@ -1002,15 +1002,34 @@ class TiendaOnlineController extends Controller
     {
         extract($request->all());
 
+        // Compatibilidad con dos shapes de payload:
+        //   - Shape viejo / unico folio: solo se manda `pedido_sae` (folio principal).
+        //   - Shape v2 (carrito refactorizado): se mandan `folio_factura` y
+        //     `folio_remision`. El folio de factura va a `pedido_sae` (mismo
+        //     campo de produccion, sin breaking change). El de remision va a
+        //     `pedido_sae_remision` (campo nuevo).
+        $folioFactura  = $request->input('folio_factura',  $request->input('pedido_sae'));
+        $folioRemision = $request->input('folio_remision', null);
+
+        // Normalizacion: vacios y "0" se traducen a null para que la columna
+        // quede NULL en BD y los reportes/UI los detecten como "no generado".
+        if ($folioFactura === '' || $folioFactura === '0' || $folioFactura === 0) {
+            $folioFactura = null;
+        }
+        if ($folioRemision === '' || $folioRemision === '0' || $folioRemision === 0) {
+            $folioRemision = null;
+        }
+
         $data = [
             'cliente' => $cliente,
             'subtotal',
             'iva',
             'gran_total',
-            'cadena_original' => strval(json_encode($request->all())),
-            'estado' => "CAPTURADO",
-            'capturo' => \Auth::user()->id,
-            'pedido_sae' => $pedido_sae
+            'cadena_original'     => strval(json_encode($request->all())),
+            'estado'              => "CAPTURADO",
+            'capturo'             => \Auth::user()->id,
+            'pedido_sae'          => $folioFactura,    // folio empresa 1 (factura)
+            'pedido_sae_remision' => $folioRemision,   // folio empresa 3 (remision) — null si no aplica
         ];
 
         if (isset(\Auth::user()->clienteData))
@@ -1054,6 +1073,15 @@ class TiendaOnlineController extends Controller
             'gran_total' => $gran_total,
         ])->save();
 
+        // Si el carrito encolo pedidos SAE pendientes (porque fallaron los 5
+        // retries en frontend), enlazarlos a este PedidoWeb para que el job
+        // artisan los actualice cuando logre insertarlos en SAE.
+        $idsPendientes = $request->input('ids_pendientes_sae', []);
+        if (!empty($idsPendientes) && is_array($idsPendientes)) {
+            \App\Models\PedidoSaePendiente::whereIn('id', $idsPendientes)
+                ->whereNull('id_pedido_web')
+                ->update(['id_pedido_web' => $pedido->id]);
+        }
 
         return json_encode([
             'code' => 1,
@@ -1169,7 +1197,15 @@ class TiendaOnlineController extends Controller
 
         $pedidos = $pedidos->concat($pedidos_syd_formateados)->sortByDesc('created_at')->values();
 
-        $pedidos_sae = $pedidos->where('es_syd', false)->pluck('pedido_sae')->toArray();
+        // Folios SAE conocidos en local (excluir SYD que aun no tienen folio).
+        // Incluye tanto pedido_sae (factura) como pedido_sae_remision si existe,
+        // para que SAE no devuelva esos folios como "nuevos por descubrir".
+        $pedidos_no_syd = $pedidos->where('es_syd', false);
+        $pedidos_sae = $pedidos_no_syd->pluck('pedido_sae')
+            ->merge($pedidos_no_syd->pluck('pedido_sae_remision'))
+            ->filter(function($f) { return !empty($f); })
+            ->values()
+            ->toArray();
         $pedidos_especiales_sae = PedidoEspecialSae::where('cliente', \Auth::user()->clave_cliente)->orderBy('created_at', 'desc')->limit(30)->get()->pluck('pedido_sae')->toArray();
         $no_pedidos = array_merge($pedidos_sae, $pedidos_especiales_sae);
 
