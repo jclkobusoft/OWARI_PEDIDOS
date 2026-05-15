@@ -1837,12 +1837,39 @@
                 }
 
                 var pr = data.partida_regalo;
+                var claveRegalo = String(pr.clave || '');
+
+                // Regla "una sola vez por cliente": SAE empresa 1 es la fuente
+                // de verdad — buscamos PAR_FACTP01 JOIN FACTP01 con la clave
+                // del regalo, cliente, STATUS!=C. Si ya tiene, descartamos.
+                // En error devolvemos null (conservador: no regalar dos veces).
+                if (claveRegalo) {
+                    try {
+                        var url = 'https://sistemasowari.com:8443/catalowari/api/regalo_ya_tiene'
+                            + '?cliente=' + encodeURIComponent(cliente.clave)
+                            + '&clave_regalo=' + encodeURIComponent(claveRegalo);
+                        var verif = await fetch(url, { headers: { 'Accept': 'application/json' }});
+                        if (!verif.ok) {
+                            console.warn('consultarRegalo: SAE verificacion HTTP', verif.status, '— no se aplica');
+                            return null;
+                        }
+                        var vdata = await verif.json();
+                        if (vdata && vdata.ya_tiene === true) {
+                            console.log('consultarRegalo: cliente ya tiene', claveRegalo, 'en SAE — no se aplica');
+                            return null;
+                        }
+                    } catch (e2) {
+                        console.warn('consultarRegalo: verificacion SAE fallo:', e2);
+                        return null;
+                    }
+                }
+
                 // El regalo se trata como partida normal de SAE, dirigida a
                 // empresa 1 (factura). existencia_remision=-1 evita que vaya
                 // a E03; existencia_factura=999 garantiza que clasificarPorEmpresa
                 // la mande a E01.
                 return {
-                    codigo:               String(pr.clave || ''),
+                    codigo:               claveRegalo,
                     descripcion:          (data.promocion && data.promocion.nombre) || 'Regalo promocional',
                     cantidad:             parseInt(pr.cantidad) || 1,
                     precio:               parseFloat(pr.precio || 0.01).toFixed(2),
