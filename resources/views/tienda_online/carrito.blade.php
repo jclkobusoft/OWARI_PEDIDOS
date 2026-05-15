@@ -850,8 +850,13 @@
                 // async/await con cola de retry, regalos via SOMA,
                 // abstraccion de proveedores especiales y guard CLIE03).
                 // El viejo guardar_pedido() fue eliminado.
-                // La validacion de recibir/forma_pago la hace validarFormulario().
+                //
+                // Validamos ANTES de levantar pedidoEnviado: si la forma esta
+                // incompleta, validarFormulario() lanza alert y devuelve false,
+                // pero la flag no queda levantada — el usuario puede corregir
+                // y volver a presionar Generar pedido sin recargar la pagina.
                 if (pedidoEnviado) return false;
+                if (!validarFormulario()) return false;
                 pedidoEnviado = true;
                 guardar_pedido_v2();
             });
