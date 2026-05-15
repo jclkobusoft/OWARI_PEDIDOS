@@ -1312,15 +1312,21 @@
                 // 4. Separar partidas en {sae, especiales}
                 var separadas = separarPartidas();
 
-                // 5. Consultar regalo (origen='telemarketing')
-                var regalo = await consultarRegalo(cliente);
-                if (regalo) separadas.sae.push(regalo);
-
-                // 6. Guardar pedidos especiales (uno por proveedor)
+                // 5. Guardar pedidos especiales (uno por proveedor)
                 await guardarEspecialesGenerales(separadas.especiales, cliente.clave);
 
-                // 7. Clasificar SAE por empresa
+                // 6. Clasificar SAE por empresa
                 var clasificacion = clasificarPorEmpresa(separadas.sae, cliente.CLASIFIC, tipoRadio, cliente.EXISTE_E3);
+
+                // 7. Consultar regalo SOLO si hay partidas en empresa 1
+                //    (factura). Regla: un pedido 100% especial (o solo remision)
+                //    no genera regalo — el regalo acompaña una venta real en E01.
+                //    Si lo aplica, se agrega a factura para que entre con el resto.
+                var regalo = null;
+                if (clasificacion.factura.length > 0) {
+                    regalo = await consultarRegalo(cliente);
+                    if (regalo) clasificacion.factura.push(regalo);
+                }
 
                 // 8. Insertar en SAE con CHUNKS de 30 + retry automatico + reintento manual
                 var foliosFactura  = await insertarEnSaeConRetry(clasificacion.factura, 1, cliente.clave);

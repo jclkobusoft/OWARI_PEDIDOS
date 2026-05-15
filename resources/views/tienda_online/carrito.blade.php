@@ -965,17 +965,23 @@
                     //    de cada proveedor especial (S227, AAAA, etc.)
                     var separadas = separarPartidas();
 
-                    // 4. Consultar regalo (si aplica, se agrega al bucket sae)
-                    var regalo = await consultarRegalo(cliente);
-                    if (regalo) separadas.sae.push(regalo);
-
-                    // 5. Guardar pedidos especiales (uno por proveedor)
+                    // 4. Guardar pedidos especiales (uno por proveedor)
                     await guardarEspecialesGenerales(separadas.especiales);
 
-                    // 6. Clasificar SAE por empresa segun CLASIFIC del cliente.
+                    // 5. Clasificar SAE por empresa segun CLASIFIC del cliente.
                     //    Pasamos cliente.EXISTE_E3 para que si el cliente no
                     //    esta en CLIE03 todo se vaya a factura (E01).
                     var clasificacion = clasificarPorEmpresa(separadas.sae, cliente.CLASIFIC, cliente.EXISTE_E3);
+
+                    // 6. Consultar regalo SOLO si hay partidas en empresa 1
+                    //    (factura). Regla: un pedido 100% especial (o solo
+                    //    remision) no genera regalo — el regalo acompaña una
+                    //    venta real en E01. Si lo aplica, se agrega a factura.
+                    var regalo = null;
+                    if (clasificacion.factura.length > 0) {
+                        regalo = await consultarRegalo(cliente);
+                        if (regalo) clasificacion.factura.push(regalo);
+                    }
 
                     // 7. Insertar en SAE con retry (1 o 2 pedidos)
                     //    Cada llamada devuelve:
