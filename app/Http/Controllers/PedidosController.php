@@ -479,6 +479,7 @@ class PedidosController extends Controller
             'empresa'       => 'required|integer|in:1,3',
             'usuario'       => 'nullable|string|max:100',
             'su_pedido'     => 'nullable|string|max:50',
+            'origen'        => 'nullable|string|max:5',
             'partidas'      => 'required|array|min:1',
             'ultimo_error'  => 'nullable|string',
             'id_pedido_web' => 'nullable|integer',
@@ -489,6 +490,7 @@ class PedidosController extends Controller
             'cliente'   => $r->input('cliente'),
             'usuario'   => $r->input('usuario', \Auth::user()->name ?? ''),
             'su_pedido' => $r->input('su_pedido', ''),
+            'origen'    => $r->input('origen', 'W'),
             'partidas'  => $r->input('partidas'),
         ];
 

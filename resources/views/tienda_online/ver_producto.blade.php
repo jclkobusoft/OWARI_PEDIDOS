@@ -153,8 +153,38 @@
 
                                     <script>
 
+                                        // Catalogo de proveedores especiales (desde SOMA). NUNCA hardcodear
+                                        // claves de proveedor (S227, AAAE, etc.). El stock_ficticio que cada
+                                        // proveedor declara se aplica via obtenerStockFicticio() abajo.
+                                        var PROVEEDORES_ESPECIALES_VP = {};
+                                        var proveedoresEspecialesListosVP = fetch('https://owari.appsoma.online/somma/v2.0/api/proveedores-especiales')
+                                            .then(function(r) {
+                                                if (!r.ok) throw new Error('HTTP ' + r.status);
+                                                return r.json();
+                                            })
+                                            .then(function(data) {
+                                                PROVEEDORES_ESPECIALES_VP = Object.fromEntries(
+                                                    (data.proveedores || []).map(function(p) { return [p.clave, p]; })
+                                                );
+                                                return true;
+                                            })
+                                            .catch(function(e) {
+                                                console.warn('No se pudo cargar proveedores_especiales:', e);
+                                                return false;
+                                            });
+
+                                        function obtenerStockFicticioVP(claveProveedor) {
+                                            if (!claveProveedor) return 0;
+                                            var cfg = PROVEEDORES_ESPECIALES_VP[claveProveedor];
+                                            if (!cfg || cfg.tipo_separacion !== 'split_por_stock') return 0;
+                                            return parseInt(cfg.stock_ficticio) || 0;
+                                        }
+
                                         var producto_partida;
-                                        setTimeout(() => {
+                                        setTimeout(async () => {
+                                                            // Esperamos la config de SOMA antes de calcular existencia para
+                                                            // que el +stock_ficticio se aplique correctamente al renderizar.
+                                                            await proveedoresEspecialesListosVP;
                                                             $.get( "https://sistemasowari.com:8443/catalowari/api/empresa_buscar_producto",
                                                                     { cliente: '{{ \Auth::user()->clave_cliente }}', clave: '{{ $producto->codigo_nikko }}', tipo: 'factura' },
                                                                     function (data, textStatus, jqXHR) {
@@ -247,8 +277,9 @@
 
                                                                             
                                                                             $('.precio_real').html("$ "+parseFloat(precio * porcentaje).toFixed(2));
-                                                                            var existenciaFinal = parseInt(obj.existencia);
-                                                                            if ('{{ $producto->clave_proveedor ?? "" }}' === 'S227') existenciaFinal += 2;
+                                                                            // Data-driven desde SOMA — NUNCA hardcodear claves de proveedor.
+                                                                            // obtenerStockFicticioVP devuelve 0 si SOMA caido o no aplica.
+                                                                            var existenciaFinal = parseInt(obj.existencia) + obtenerStockFicticioVP('{{ $producto->clave_proveedor ?? "" }}');
                                                                             obj.existencia = existenciaFinal;
                                                                             producto_partida.existencia = existenciaFinal;
                                                                             $('.existencia_real').html(existenciaFinal);

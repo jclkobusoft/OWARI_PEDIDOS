@@ -5,29 +5,6 @@
                 <div class="card">
                     <div class="card-body">
                         <form>
-                            {{-- Radios — ocultos al inicio. Aparecen solo si el cliente seleccionado NO tiene W en pos.4 de CLASIFIC --}}
-                            <div class="row" id="radios_tipo_pedido" style="display:none;">
-                                <div class="col-md-6 offset-md-1">
-                                    <div class="form-check">
-                                        <input class="form-check-input tipo_cliente" type="radio" name="tipo_pedido"
-                                            id="pedido_normal" style="width: 20px; height: 20px;" value="normal">
-                                        <label class="form-check-label" for="pedido_normal"
-                                            style="font-size: 15px;margin:3px 0 0 5px;">
-                                            Pedido normal
-                                        </label>
-                                    </div>
-                                    <div class="form-check">
-                                        <input class="form-check-input tipo_cliente" type="radio" name="tipo_pedido"
-                                            id="pedido_todo_factura" style="width: 20px; height: 20px;" value="factura">
-                                        <label class="form-check-label" for="pedido_todo_factura"
-                                            style="font-size: 15px;margin:3px 0 0 5px;">
-                                            Pedido todo a factura
-                                        </label>
-                                    </div>
-
-                                </div>
-                            </div>
-
                             <div class="row">
                                 <div class="col-md-5">
                                     <div class="row">
@@ -41,6 +18,28 @@
                                                 </div>
                                             </div>
                                             <div id="datos_cliente"></div>
+
+                                            {{-- Radios — ocultos al inicio. Aparecen debajo de los datos del cliente solo si CLASIFIC NO tiene W en pos.4. Asi el flujo de lectura es natural: cliente → sus datos → tipo de pedido. --}}
+                                            <div class="row mt-3" id="radios_tipo_pedido" style="display:none;">
+                                                <div class="col-12">
+                                                    <div class="form-check">
+                                                        <input class="form-check-input tipo_cliente" type="radio" name="tipo_pedido"
+                                                            id="pedido_normal" style="width: 20px; height: 20px;" value="normal">
+                                                        <label class="form-check-label" for="pedido_normal"
+                                                            style="font-size: 15px;margin:3px 0 0 5px;">
+                                                            Pedido normal
+                                                        </label>
+                                                    </div>
+                                                    <div class="form-check">
+                                                        <input class="form-check-input tipo_cliente" type="radio" name="tipo_pedido"
+                                                            id="pedido_todo_factura" style="width: 20px; height: 20px;" value="factura">
+                                                        <label class="form-check-label" for="pedido_todo_factura"
+                                                            style="font-size: 15px;margin:3px 0 0 5px;">
+                                                            Pedido todo a factura
+                                                        </label>
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
                                         <div class="col-md-12 mt-3">
                                             <div class="card mostrar_busqueda">
@@ -444,7 +443,11 @@
 
             var disponible = fila_seleccionada.getData().disponibilidad;
             var claveProveedor = fila_seleccionada.getData().clave_proveedor || '';
-            var esSYD = (claveProveedor === 'S227');
+            // Data-driven desde SOMA — NUNCA hardcodear claves de proveedor.
+            // Si SOMA caido o el proveedor no esta registrado, el producto se
+            // trata como normal (sin split por stock ficticio).
+            var esSplitStock = esSplitPorStock(claveProveedor);
+            var stockFicticio = obtenerStockFicticio(claveProveedor);
             console.log(disponible);
             var ya_existe = false;
             var obj = producto_partida;
@@ -461,20 +464,25 @@
             }
 
             let a_especial = 0;
-            let a_syd = 0;
+            let a_syd = 0;   // legacy, conservado por compat — siempre 0 ahora
 
-            if (esSYD) {
-                // Proveedor S227: existencia real = obj.existencia - 2 (las 2 ficticias siempre se agregan)
-                var existenciaReal = parseInt(obj.existencia || 0) - 2;
-                if (existenciaReal < 0) existenciaReal = 0;
-
-                if (cantidad > existenciaReal) {
-                    // Todo lo que excede la existencia real va a SYD (nunca a especial tradicional).
-                    // Se agrega como partida normal a la UI, pero el mapa interno marca cuanto es SYD.
-                    a_syd = cantidad - existenciaReal;
-                    cantidad = existenciaReal;
+            if (esSplitStock) {
+                // Proveedor con tipo_separacion='split_por_stock' (S227 y similares).
+                // obj.existencia ya incluye `stockFicticio` unidades virtuales que
+                // SOMA configura (se sumaron en buscarProducto).
+                //
+                // Regla: lo que cabe en obj.existencia (real + ficticio) va a
+                // table_partidas; el excedente va a table_partidas_especiales con
+                // clave_proveedor=S227. Luego separarPartidas() hace el split fino
+                // dentro de table_partidas: stock_real → SAE, stock_ficticio → especial.
+                //
+                // Ej. obj.existencia=12 (real=10, fic=2), cantidad=20:
+                //   table_partidas = 12, table_partidas_especiales = 8
+                //   separarPartidas: SAE=10, especial[S227] = 2 + 8 = 10
+                if (cantidad > obj.existencia) {
+                    a_especial = cantidad - obj.existencia;
+                    cantidad = obj.existencia;
                 }
-                // Para S227 NUNCA se llena a_especial (no hay pedido especial tradicional)
             } else if (cantidad > obj.existencia) {
 
                 if (disponible != 'agotado') {
@@ -587,8 +595,10 @@
                 actualizarGranTotalEspeciales();
             }
 
-            // Cantidad que se muestra en table_partidas (total visible para el vendedor).
-            // Para S227 puede ser cantidad_real + a_syd; para el resto es solo cantidad.
+            // Cantidad que se muestra en table_partidas. Para todos los casos
+            // ya es la cantidad que cabe en obj.existencia (cualquier excedente
+            // se mando a table_partidas_especiales arriba). a_syd se conserva en
+            // 0 por compat — separarPartidas() es ahora quien hace el split fino.
             var cantidad_total_partida = parseInt(cantidad) + parseInt(a_syd);
 
             if (cantidad_total_partida > 0) {
@@ -800,10 +810,21 @@
                         return false;
                     }
 
-                    // Proveedor S227 (SYD): sumar 2 unidades ficticias al stock real
-                    if ($clave_proveedor === 'S227') {
-                        obj.existencia = parseInt(obj.existencia || 0) + 2;
+                    // Proveedores con tipo_separacion='split_por_stock' suman
+                    // `stock_ficticio` unidades virtuales al stock SAE (la UI
+                    // siempre las muestra como disponibles). Data-driven desde
+                    // SOMA (PROVEEDORES_ESPECIALES) — NUNCA hardcodear S227.
+                    var stockFicticio = obtenerStockFicticio($clave_proveedor);
+                    if (stockFicticio > 0) {
+                        obj.existencia = parseInt(obj.existencia || 0) + stockFicticio;
                     }
+
+                    // empresa_buscar_producto_vendedores (SAE) no devuelve
+                    // clave_proveedor; la copiamos desde la fila tabulator que
+                    // la trae desde apiBusqueda (SOMA). Sin esto, separarPartidas
+                    // no detectaria el proveedor especial y la partida caeria en
+                    // clasificarPorEmpresa como producto normal.
+                    obj.clave_proveedor = $clave_proveedor || '';
 
                     producto_partida = obj;
                     if (obj.cliente == "N/A")
@@ -1204,22 +1225,44 @@
         //                dividirEnChunks, calcularGranTotalActual
         // ════════════════════════════════════════════════════════════════════
 
-        // Catalogo de proveedores especiales — cargado al iniciar la pagina
+        // Catalogo de proveedores especiales — cargado al iniciar la pagina.
+        // El mapa se llena al resolverse `proveedoresEspecialesListos` (Promise).
+        // Toda funcion que dependa de el debe esperar esa promesa para evitar
+        // perder partidas silenciosamente cuando SOMA tarda en responder.
         var PROVEEDORES_ESPECIALES = {};
 
-        async function cargarProveedoresEspeciales() {
-            try {
-                var r = await fetch('https://owari.appsoma.online/somma/v2.0/api/proveedores-especiales');
-                var data = await r.json();
+        var proveedoresEspecialesListos = fetch('https://owari.appsoma.online/somma/v2.0/api/proveedores-especiales')
+            .then(function(r) {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+            })
+            .then(function(data) {
                 PROVEEDORES_ESPECIALES = Object.fromEntries(
                     (data.proveedores || []).map(function(p) { return [p.clave, p]; })
                 );
-            } catch (e) {
+                return true;
+            })
+            .catch(function(e) {
                 console.warn('No se pudo cargar proveedores_especiales:', e);
                 PROVEEDORES_ESPECIALES = {};
-            }
+                return false;
+            });
+
+        // Helpers data-driven: NUNCA hardcodear claves de proveedor (S227, AAAE, etc.).
+        // La regla viene de SOMA via PROVEEDORES_ESPECIALES.
+        function configProveedor(claveProveedor) {
+            if (!claveProveedor) return null;
+            return PROVEEDORES_ESPECIALES[claveProveedor] || null;
         }
-        cargarProveedoresEspeciales();
+        function esSplitPorStock(claveProveedor) {
+            var cfg = configProveedor(claveProveedor);
+            return !!(cfg && cfg.tipo_separacion === 'split_por_stock');
+        }
+        function obtenerStockFicticio(claveProveedor) {
+            var cfg = configProveedor(claveProveedor);
+            if (!cfg || cfg.tipo_separacion !== 'split_por_stock') return 0;
+            return parseInt(cfg.stock_ficticio) || 0;
+        }
 
         var MAX_INTENTOS_SAE = 5;
         var ESPERA_ENTRE_INTENTOS_MS = 2000;
@@ -1238,6 +1281,18 @@
             mostrarCargando('Procesando tu pedido...');
 
             try {
+                // 0. Asegurar que la config de proveedores especiales este cargada
+                //    desde SOMA antes de tocar partidas. Si SOMA esta caido,
+                //    abortamos: prefiero detener el flujo a perder partidas
+                //    silenciosamente (S227 caeria en clasificarPorEmpresa.DESCARTADA).
+                var cfgOk = await proveedoresEspecialesListos;
+                if (!cfgOk) {
+                    throw new Error(
+                        'No se pudo cargar la configuracion de proveedores especiales desde SOMA. ' +
+                        'Recarga la pagina e intenta de nuevo.'
+                    );
+                }
+
                 // 1. Cliente del select (con CLASIFIC y CAMPLIB3 ya cargados al cambiar select)
                 var cliente = obtenerClienteSeleccionado();
 
@@ -1265,7 +1320,7 @@
                 await guardarEspecialesGenerales(separadas.especiales, cliente.clave);
 
                 // 7. Clasificar SAE por empresa
-                var clasificacion = clasificarPorEmpresa(separadas.sae, cliente.CLASIFIC, tipoRadio);
+                var clasificacion = clasificarPorEmpresa(separadas.sae, cliente.CLASIFIC, tipoRadio, cliente.EXISTE_E3);
 
                 // 8. Insertar en SAE con CHUNKS de 30 + retry automatico + reintento manual
                 var foliosFactura  = await insertarEnSaeConRetry(clasificacion.factura, 1, cliente.clave);
@@ -1452,11 +1507,12 @@
                 throw new Error('Cliente no encontrado en el array clientes');
             }
             return {
-                clave:    c.clave,
-                nombre:   c.nombre || '',
-                EMPRESA:  c.EMPRESA || c.empresa || null,
-                CLASIFIC: c.CLASIFIC || '',
-                CAMPLIB3: c.CAMPLIB3 || '',
+                clave:     c.clave,
+                nombre:    c.nombre || '',
+                EMPRESA:   c.EMPRESA || c.empresa || null,
+                CLASIFIC:  c.CLASIFIC || '',
+                CAMPLIB3:  c.CAMPLIB3 || '',
+                EXISTE_E3: (typeof c.EXISTE_E3 === 'boolean') ? c.EXISTE_E3 : undefined,
             };
         }
 
@@ -1613,8 +1669,13 @@
             });
         }
 
-        function clasificarPorEmpresa(partidasSae, clasif, tipoRadio) {
+        function clasificarPorEmpresa(partidasSae, clasif, tipoRadio, existeE3) {
             // Decide a qué empresa SAE va cada partida (E01 factura, E03 remision).
+            //
+            // GUARD: si el cliente NO existe en CLIE03 (existeE3 === false), todo
+            // va a factura. SAE empresa 3 rechazaria el pedido si el cliente no
+            // esta registrado alli. existeE3 === undefined (backend viejo sin
+            // EXISTE_E3) NO bloquea — mantiene compat.
             //
             // Reglas:
             //   - Si CLASIFIC tiene W en pos.4 → SIEMPRE split por existencia
@@ -1630,6 +1691,11 @@
             //   resto → DESCARTADA (bug heredado; se preserva con console.warn)
             var factura  = [];
             var remision = [];
+
+            // Guard: cliente no esta en CLIE03 → no puede ir a E03
+            if (existeE3 === false) {
+                return { factura: partidasSae.slice(), remision: remision };
+            }
 
             // Cliente sin W con radio "factura" → atajo: todo a factura
             if (!tieneWEnPos4(clasif) && tipoRadio === 'factura') {
@@ -1964,6 +2030,9 @@
                 cliente:   claveCliente,
                 usuario:   usuario || '',
                 su_pedido: suPedido || '',
+                // origen 'W' = telemarketing. SAE genera serie CAMPLIB13+W
+                // (ej. PEDW). El carrito manda 'CW' para distinguirse.
+                origen:    'W',
                 partidas:  partidasParaSae,
             };
 
@@ -2013,30 +2082,6 @@
                 chunks.push(arr.slice(i, i + n));
             }
             return chunks;
-        }
-
-        async function insertarChunkConReintentosManuales(chunk, empresa, idx, total, claveCliente, usuario, suPedido) {
-            // TODO Fase 9: while(true) { 5 retries; si falla -> mostrarOpcionReintentar; si dice si, otros 5; si dice no, throw }
-            throw new Error('insertarChunkConReintentosManuales no implementado (Fase 9)');
-        }
-
-        async function intentarChunkConRetryInterno(chunk, empresa, claveCliente, usuario, suPedido) {
-            // TODO Fase 9: 5 retries automaticos al guardar_v2 con dormir(2s) entre cada uno.
-            // Devuelve { exito:true, folio } o { exito:false, error }
-            throw new Error('intentarChunkConRetryInterno no implementado (Fase 9)');
-        }
-
-        async function intentarInsercionSae(partidas, empresa, claveCliente, usuario, suPedido) {
-            // TODO Fase 9: un solo POST a /catalowari/api/guardar_v2.
-            // Lanza Error en cualquier falla. Devuelve folio en exito.
-            throw new Error('intentarInsercionSae no implementado (Fase 9)');
-        }
-
-        function partidaParaSae(p, empresa) {
-            // TODO Fase 9: adapta shape para guardar_v2.
-            //   empresa 1: precio sin IVA, total con IVA
-            //   empresa 3: precio sin IVA, total sin IVA
-            throw new Error('partidaParaSae no implementado (Fase 9)');
         }
 
         async function guardarPedidoLocal(payload) {
@@ -2177,8 +2222,9 @@
 
             reiniciarVenta();
 
-            // Enriquecer con CLASIFIC y CAMPLIB3 desde SAE.
-            // datos_cliente devuelve el row crudo de CLIE01 LEFT JOIN CLIE_CLIB01.
+            // Enriquecer con CLASIFIC, CAMPLIB3 y EXISTE_E3 desde SAE.
+            // datos_cliente devuelve el row crudo de CLIE01 LEFT JOIN CLIE_CLIB01,
+            // y un flag EXISTE_E3 que indica si el cliente esta en CLIE03.
             try {
                 var resp = await fetch(
                     'https://sistemasowari.com:8443/catalowari/api/datos_cliente?clave=' +
@@ -2187,21 +2233,36 @@
                 if (resp.ok) {
                     var datos = await resp.json();
                     if (datos && datos.CLAVE) {
-                        cliente.CLASIFIC = (datos.CLASIFIC || '').toString().trim();
-                        cliente.CAMPLIB3 = (datos.CAMPLIB3 || '').toString().trim();
+                        cliente.CLASIFIC  = (datos.CLASIFIC || '').toString().trim();
+                        cliente.CAMPLIB3  = (datos.CAMPLIB3 || '').toString().trim();
+                        cliente.EXISTE_E3 = (typeof datos.EXISTE_E3 === 'boolean') ? datos.EXISTE_E3 : undefined;
                         clientes[indice] = cliente;   // persiste enriquecimiento
                     }
                 }
             } catch (e) {
-                console.warn('No se pudo enriquecer cliente con CLASIFIC:', e);
+                console.warn('No se pudo enriquecer cliente con CLASIFIC/EXISTE_E3:', e);
             }
 
-            // Decidir radios segun W en pos.4 de CLASIFIC
+            // Decidir radios segun W en pos.4 de CLASIFIC + presencia en CLIE03.
+            //
+            //   - Cliente CON W → ocultar radios (v2 hace split automatico E01/E03).
+            //   - Cliente SIN W y SIN CLIE03 → ocultar radios y forzar 'factura'.
+            //     Sin CLIE03 no puede recibir remision, asi que "normal" no aplica
+            //     y el unico destino posible es E01. Mostrar las opciones seria
+            //     confuso porque ambas terminarian igual.
+            //   - Cliente SIN W y CON CLIE03 → mostrar radios para elegir normal
+            //     (split por existencia) o todo a factura.
+            //
+            // EXISTE_E3 puede ser undefined si el backend viejo no devuelve el
+            // flag — en ese caso preservamos comportamiento anterior (mostrar radios).
             if (tieneWEnPos4(cliente.CLASIFIC || '')) {
                 $('#radios_tipo_pedido').hide();
                 // Forzar 'normal' (oculto) por compat con guardar_pedido viejo
                 // que aun lee el radio. El v2 detecta W e ignora el radio.
                 $('#pedido_normal').prop('checked', true);
+            } else if (cliente.EXISTE_E3 === false) {
+                $('#radios_tipo_pedido').hide();
+                $('#pedido_todo_factura').prop('checked', true);
             } else {
                 $('#radios_tipo_pedido').show();
                 if (!$("input:radio[name='tipo_pedido']:checked").val()) {

@@ -22,11 +22,54 @@ use SimpleSoftwareIO\QrCode\Facades\QrCode;
 
 class TiendaOnlineController extends Controller
 {
+    // Cache de proveedores_especiales (SOMA) por request — evita N queries
+    // cuando se renderizan muchos productos del carrito en un solo controller.
+    private $proveedoresEspecialesCache = null;
 
     public function __construct()
     {
         $general = DatosGenerales::find(1);
         \View::share('general', $general);
+    }
+
+    /**
+     * Lee la tabla `proveedores_especiales` de SOMA y devuelve un mapa
+     * indexado por clave (S227 → {tipo_separacion, stock_ficticio, ...}).
+     * Es la fuente UNICA — nunca hardcodear claves de proveedor en este controller.
+     * Si SOMA esta caido o la tabla no responde, devuelve [] (degradacion segura:
+     * los productos se tratan como normales, sin +stock_ficticio).
+     */
+    private function obtenerProveedoresEspeciales(): array
+    {
+        if ($this->proveedoresEspecialesCache !== null) {
+            return $this->proveedoresEspecialesCache;
+        }
+        try {
+            $rows = \DB::connection('owari_soma')
+                ->table('proveedores_especiales')
+                ->where('activo', true)
+                ->get(['clave', 'tipo_separacion', 'stock_ficticio']);
+            $this->proveedoresEspecialesCache = [];
+            foreach ($rows as $r) {
+                $this->proveedoresEspecialesCache[$r->clave] = $r;
+            }
+        } catch (\Throwable $e) {
+            \Log::warning('obtenerProveedoresEspeciales fallo: ' . $e->getMessage());
+            $this->proveedoresEspecialesCache = [];
+        }
+        return $this->proveedoresEspecialesCache;
+    }
+
+    /**
+     * Stock ficticio que se suma al stock real para mostrar al cliente.
+     * Solo aplica para proveedores con tipo_separacion='split_por_stock'.
+     */
+    private function obtenerStockFicticio(?string $claveProveedor): int
+    {
+        if (empty($claveProveedor)) return 0;
+        $cfg = $this->obtenerProveedoresEspeciales()[$claveProveedor] ?? null;
+        if (!$cfg || $cfg->tipo_separacion !== 'split_por_stock') return 0;
+        return (int) $cfg->stock_ficticio;
     }
 
 
@@ -898,13 +941,17 @@ class TiendaOnlineController extends Controller
                 curl_close($ch);
                 $existencias_reales = json_decode($data, true);
 
-                // Guardar SIEMPRE la existencia real (sin +2) para usar en la division S227
+                // Guardar SIEMPRE la existencia real (sin ficticio) para que la
+                // logica de division (split) pueda usar el stock real.
                 $existenciaRealSae = intval($existencias_reales['existencia'] ?? 0);
                 $productos[$key]['existencia_real_sae'] = $existenciaRealSae;
 
-                // Si el producto es S227, sumar 2 unidades ficticias para validar stock visual
-                if (!empty($value['clave_proveedor']) && $value['clave_proveedor'] === 'S227') {
-                    $existencias_reales['existencia'] = $existenciaRealSae + 2;
+                // Sumar `stock_ficticio` al stock visible si el proveedor del
+                // producto tiene tipo_separacion='split_por_stock' en SOMA.
+                // Data-driven — NUNCA hardcodear claves de proveedor (S227, AAAE, etc.).
+                $stockFicticio = $this->obtenerStockFicticio($value['clave_proveedor'] ?? null);
+                if ($stockFicticio > 0) {
+                    $existencias_reales['existencia'] = $existenciaRealSae + $stockFicticio;
                 }
 
 
@@ -1869,13 +1916,17 @@ class TiendaOnlineController extends Controller
                 curl_close($ch);
                 $existencias_reales = json_decode($data, true);
 
-                // Guardar SIEMPRE la existencia real (sin +2) para usar en la division S227
+                // Guardar SIEMPRE la existencia real (sin ficticio) para que la
+                // logica de division (split) pueda usar el stock real.
                 $existenciaRealSae = intval($existencias_reales['existencia'] ?? 0);
                 $productos[$key]['existencia_real_sae'] = $existenciaRealSae;
 
-                // Si el producto es S227, sumar 2 unidades ficticias para validar stock visual
-                if (!empty($value['clave_proveedor']) && $value['clave_proveedor'] === 'S227') {
-                    $existencias_reales['existencia'] = $existenciaRealSae + 2;
+                // Sumar `stock_ficticio` al stock visible si el proveedor del
+                // producto tiene tipo_separacion='split_por_stock' en SOMA.
+                // Data-driven — NUNCA hardcodear claves de proveedor (S227, AAAE, etc.).
+                $stockFicticio = $this->obtenerStockFicticio($value['clave_proveedor'] ?? null);
+                if ($stockFicticio > 0) {
+                    $existencias_reales['existencia'] = $existenciaRealSae + $stockFicticio;
                 }
 
 
