@@ -98,7 +98,7 @@
             return false;
         }
 
-        $.get('{{ route('etiquetas.pdf') }}', $('#forma').serialize()+"&descripcion="+descripcion+"&barras="+barras+"&clave="+clave , function(data, textStatus, xhr) {
+        $.get('{{ route('etiquetas.pdf') }}', $('#forma').serialize()+"&descripcion="+encodeURIComponent(descripcion)+"&barras="+encodeURIComponent(barras)+"&clave="+encodeURIComponent(clave) , function(data, textStatus, xhr) {
             /*optional stuff to do after success */
             clave = ""
             barras = ""
