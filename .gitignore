@@ -1,6 +1,8 @@
 /vendor
 /node_modules
 .env
+.env.*
+!.env.example
 storage/*.key
 /storage/logs/*
 /storage/framework/cache/*
@@ -8,3 +10,7 @@ storage/*.key
 /storage/framework/views/*
 /public/hot
 /public/storage
+
+# macOS
+.DS_Store
+**/.DS_Store

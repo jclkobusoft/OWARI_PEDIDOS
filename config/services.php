@@ -37,4 +37,11 @@ return [
         'api_key' => env('SOMMA_API_KEY'),
     ],
 
+    // API key que SOMA cloud envía cuando consume nuestros endpoints
+    // /api/qz/* — sentido inverso al de 'somma' (esa la usamos nosotros
+    // para llamar a SOMA; esta la usa SOMA cloud para llamarnos).
+    'soma_inbound' => [
+        'api_key' => env('SOMA_INBOUND_API_KEY'),
+    ],
+
 ];

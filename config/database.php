@@ -107,6 +107,29 @@ return [
             // 'trust_server_certificate' => env('DB_TRUST_SERVER_CERTIFICATE', 'false'),
         ],
 
+        // Conexión read-only al MySQL de Quezada (QZ).
+        // Este proyecto vive en la oficina (misma LAN que QZ) y expone los
+        // datos verificados via /api/qz/* para que SOMA cloud los consuma
+        // por HTTPS (SOMA cloud no tiene ruta directa a 10.10.0.160).
+        'quezada' => [
+            'driver'    => 'mysql',
+            'host'      => env('QZ_HOST', '10.10.0.160'),
+            'port'      => env('QZ_PORT', '3306'),
+            'database'  => env('QZ_DATABASE', 'quezada'),
+            'username'  => env('QZ_USERNAME', 'owari'),
+            'password'  => env('QZ_PASSWORD', ''),
+            'charset'   => 'utf8',
+            'collation' => 'utf8_general_ci',
+            'prefix'    => '',
+            'strict'    => false,
+            'engine'    => null,
+            'options'   => extension_loaded('pdo_mysql') ? [
+                PDO::ATTR_TIMEOUT            => 5,
+                PDO::ATTR_PERSISTENT         => false,
+                PDO::MYSQL_ATTR_INIT_COMMAND => 'SET SESSION TRANSACTION READ ONLY',
+            ] : [],
+        ],
+
     ],
 
     /*
