@@ -1634,7 +1634,10 @@
                 sae.push(p);
             }
 
-            // 2. Partidas especiales (table_partidas_especiales) — siempre a especiales[clave]
+            // 2. Partidas especiales (table_partidas_especiales). La clave_proveedor
+            //    solo separa si ese proveedor esta marcado como ESPECIAL en SOMA
+            //    (PROVEEDORES_ESPECIALES). Sino, todo va al bucket SIN_PROVEEDOR
+            //    para que se genere UN solo PedidoEspecial general.
             var especialesVisibles = (typeof table_partidas_especiales !== 'undefined') ? table_partidas_especiales.getData() : [];
             for (var j = 0; j < especialesVisibles.length; j++) {
                 var pe = Object.assign({}, especialesVisibles[j]);
@@ -1642,7 +1645,9 @@
                     ? partidas_especiales.find(function(o) { return o.clave === pe.codigo; })
                     : null;
                 pe = enriquecerDesdeObj(pe, objE);
-                pushEspecial(pe.clave_proveedor || '', pe);
+                var claveProvE = (pe.clave_proveedor || '').trim();
+                var configE = claveProvE ? PROVEEDORES_ESPECIALES[claveProvE] : null;
+                pushEspecial(configE ? claveProvE : '', pe);
             }
 
             // 3. Consolidar duplicados dentro de cada bucket especial

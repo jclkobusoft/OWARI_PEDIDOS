@@ -1233,11 +1233,16 @@
                     sae.push(p);
                 }
 
-                // 2. Partidas del cartEspecial — siempre a especiales por proveedor
+                // 2. Partidas del cartEspecial. La clave_proveedor solo se usa
+                //    para separar si ese proveedor esta marcado como ESPECIAL
+                //    en SOMA (PROVEEDORES_ESPECIALES). Sino, va a SIN_PROVEEDOR
+                //    junto con el resto — no queremos un PedidoEspecial por
+                //    cada proveedor regular del catalogo.
                 for (var j = 0; j < partidas_especiales_finales.length; j++) {
                     var pe = Object.assign({}, partidas_especiales_finales[j]);
                     var claveProvE = (pe.clave_proveedor || '').trim();
-                    pushEspecial(claveProvE, pe);
+                    var configE = claveProvE ? PROVEEDORES_ESPECIALES[claveProvE] : null;
+                    pushEspecial(configE ? claveProvE : '', pe);
                 }
 
                 // 3. Consolidar duplicados por codigo dentro de cada bucket especial

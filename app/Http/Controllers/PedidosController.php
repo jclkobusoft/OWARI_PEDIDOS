@@ -338,11 +338,11 @@ class PedidosController extends Controller
             });
 
 
-            if (!$esSYD) {
-                \Session::put('cartEspecial', []);
-            }
-            // Nota: para SYD no tocamos el cart aqui (evitar race condition).
-            // El frontend se encarga de limpiar cart con vaciar_carrito al finalizar.
+            // Al insertar un pedido especial siempre se limpia cartEspecial,
+            // sin importar el proveedor (incluido SYD) ni si el pedido normal
+            // logro insertarse o no. Asi evitamos que el cliente vea las
+            // mismas partidas en una proxima visita y las vuelva a generar.
+            \Session::put('cartEspecial', []);
 
 
         return json_encode([
