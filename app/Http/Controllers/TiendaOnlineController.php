@@ -1049,6 +1049,12 @@ class TiendaOnlineController extends Controller
     {
         extract($request->all());
 
+        // partidas puede no venir en el request cuando el pedido es 100%
+        // especial: jQuery omite los arrays vacios al serializar, asi que
+        // `extract` no define $partidas y el foreach de abajo reventaria con
+        // "Undefined variable". Lo normalizamos a [] para ese caso.
+        $partidas = $request->input('partidas', []);
+
         // Compatibilidad con dos shapes de payload:
         //   - Shape viejo / unico folio: solo se manda `pedido_sae` (folio principal).
         //   - Shape v2 (carrito refactorizado): se mandan `folio_factura` y

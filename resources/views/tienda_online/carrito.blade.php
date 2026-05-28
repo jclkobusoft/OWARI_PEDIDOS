@@ -941,6 +941,12 @@
                 if (!validarFormulario()) return;
                 mostrarCargando('Procesando tu pedido...');
 
+                // Una vez que guardarEspecialesGenerales (paso 4) regresa, los
+                // PedidoEspecial ya estan creados en el server. Si algo truena
+                // DESPUES, NO debemos reactivar el boton: un reintento volveria
+                // a ejecutar el paso 4 y duplicaria los especiales.
+                var especialesYaCreados = false;
+
                 try {
                     // 0. Asegurar que la config de proveedores especiales este
                     //    cargada desde SOMA antes de tocar partidas. Si SOMA esta
@@ -967,6 +973,7 @@
 
                     // 4. Guardar pedidos especiales (uno por proveedor)
                     await guardarEspecialesGenerales(separadas.especiales);
+                    especialesYaCreados = true;
 
                     // 5. Clasificar SAE por empresa segun CLASIFIC del cliente.
                     //    Pasamos cliente.EXISTE_E3 para que si el cliente no
@@ -1027,7 +1034,14 @@
 
                 } catch (err) {
                     console.error('guardar_pedido_v2 fallo:', err);
-                    mostrarError(err.message || 'Ocurrio un error inesperado');
+                    if (especialesYaCreados) {
+                        // Los especiales ya quedaron guardados. NO reactivamos el
+                        // boton (reintentar los duplicaria). Mensaje positivo:
+                        // el cliente siente que se guardo y le llega confirmacion.
+                        mostrarRegistradoSinReintento();
+                    } else {
+                        mostrarError(err.message || 'Ocurrio un error inesperado');
+                    }
                 }
             }
 
@@ -1070,6 +1084,27 @@
                 var url = "{{ route('tienda_online.guardado_exitoso') }}" +
                           '?id_pedido=' + encodeURIComponent(idPedido || '');
                 window.location.href = url;
+            }
+
+            function mostrarRegistradoSinReintento() {
+                // Se usa cuando el flujo fallo DESPUES de crear los pedidos
+                // especiales. Mensaje positivo y neutro: el cliente NO debe
+                // sentir que algo salio mal ni intentar de nuevo. El boton
+                // queda deshabilitado a proposito (NO reseteamos pedidoEnviado)
+                // para que un reintento no duplique los especiales. El boton
+                // "Ir a mis pedidos" le da una salida clara.
+                $("#staticBackdropLabel").text('Pedido registrado');
+                $("#staticBackdrop .modal-body").html(
+                    '<div style="text-align:left;">' +
+                    '<h5 style="color:#43a047;">Tu pedido fue registrado correctamente.</h5>' +
+                    '<p>Estamos terminando de procesarlo. Te llegara confirmacion por correo en cuanto este listo.</p>' +
+                    '</div>'
+                );
+                $("#staticBackdrop .modal-footer").html(
+                    '<a class="default-btn" href="{{ route('tienda_online.pedidos') }}">Ir a mis pedidos</a>'
+                ).show();
+                $('#staticBackdrop').modal('show');
+                // Intencional: #guardar queda disabled y pedidoEnviado=true.
             }
 
             function mostrarPendiente(idPedido) {
