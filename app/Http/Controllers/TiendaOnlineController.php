@@ -1143,6 +1143,48 @@ class TiendaOnlineController extends Controller
 
     }
 
+    /**
+     * Escribe en un PedidoWeb ya creado los folios SAE que se lograron.
+     * El flujo v2 del carrito crea el espejo PRIMERO (folios en null) y luego,
+     * tras insertar en SAE, llama aqui para llenar los folios. Solo escribe
+     * columnas vacias: no pisa folios que el cron de pendientes ya haya puesto.
+     *
+     * POST /tienda_online/carrito/actualizar_folios
+     *   { id_pedido, folio_factura, folio_remision }
+     */
+    public function actualizarFoliosEspejo(Request $request)
+    {
+        $idPedido      = $request->input('id_pedido');
+        $folioFactura  = $request->input('folio_factura');
+        $folioRemision = $request->input('folio_remision');
+
+        // Normalizar vacios/"0" a null
+        if ($folioFactura === '' || $folioFactura === '0' || $folioFactura === 0)   $folioFactura = null;
+        if ($folioRemision === '' || $folioRemision === '0' || $folioRemision === 0) $folioRemision = null;
+
+        $pedido = PedidoWeb::where('id', $idPedido)
+            ->where('cliente', \Auth::user()->clave_cliente)
+            ->first();
+
+        if (!$pedido) {
+            return response()->json(['code' => 0, 'mensaje' => 'Pedido no encontrado']);
+        }
+
+        // Solo llenar columnas vacias (no pisar folios ya puestos por el cron).
+        $cambios = false;
+        if ($folioFactura && empty($pedido->pedido_sae)) {
+            $pedido->pedido_sae = $folioFactura;
+            $cambios = true;
+        }
+        if ($folioRemision && empty($pedido->pedido_sae_remision)) {
+            $pedido->pedido_sae_remision = $folioRemision;
+            $cambios = true;
+        }
+        if ($cambios) $pedido->save();
+
+        return response()->json(['code' => 1, 'id_pedido' => $pedido->id]);
+    }
+
 
     public function verificarPedidoDuplicado(Request $request)
     {

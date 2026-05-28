@@ -990,42 +990,57 @@
                         if (regalo) clasificacion.factura.push(regalo);
                     }
 
-                    // 7. Insertar en SAE con retry (1 o 2 pedidos)
+                    // 7. Crear el espejo local en pedidos_web ANTES de tocar SAE,
+                    //    con folios en null. Asi el pedido SIEMPRE queda registrado
+                    //    localmente: si SAE o la actualizacion de folios fallan
+                    //    despues (red, navegador cerrado, etc.), el pedido existe y
+                    //    es reconciliable — nunca queda un folio SAE sin espejo
+                    //    (el caso B038). Si la creacion del espejo falla, abortamos
+                    //    AQUI, antes de insertar en SAE, para no generar un folio
+                    //    huerfano. Folios en null; se llenan en el paso 9.
+                    var idPedido = await guardarPedidoWebLocal({
+                        cliente: cliente.CLAVE,
+                        folio_factura:        null,
+                        folio_remision:       null,
+                        partidas_sae:         clasificacion.factura.concat(clasificacion.remision),
+                        especiales:           separadas.especiales,
+                        regalo:               regalo,
+                    });
+
+                    // 8. Insertar en SAE con retry (1 o 2 pedidos). Pasamos idPedido
+                    //    para que, si una empresa agota reintentos y se encola, el
+                    //    pendiente quede enlazado al espejo y el cron lo complete.
                     //    Cada llamada devuelve:
                     //      string  → folio SAE
                     //      null    → no hay partidas para esa empresa
-                    //      object  → { queued:true, id_pendiente } cuando los
-                    //                5 retries fallaron y el pedido quedo
-                    //                encolado en backend para retry diferido
-                    var resultadoFactura  = await insertarEnSaeConRetry(clasificacion.factura, 1);
+                    //      object  → { queued:true, id_pendiente } cuando los 5
+                    //                retries fallaron y el pedido quedo encolado
+                    var resultadoFactura  = await insertarEnSaeConRetry(clasificacion.factura, 1, idPedido);
                     var resultadoRemision = clasificacion.remision.length
-                        ? await insertarEnSaeConRetry(clasificacion.remision, 3)
+                        ? await insertarEnSaeConRetry(clasificacion.remision, 3, idPedido)
                         : null;
 
                     var folioFactura  = (typeof resultadoFactura  === 'string') ? resultadoFactura  : null;
                     var folioRemision = (typeof resultadoRemision === 'string') ? resultadoRemision : null;
 
-                    var idsPendientes = [];
-                    if (resultadoFactura  && resultadoFactura.queued)  idsPendientes.push(resultadoFactura.id_pendiente);
-                    if (resultadoRemision && resultadoRemision.queued) idsPendientes.push(resultadoRemision.id_pendiente);
-                    var hayQueued = idsPendientes.length > 0;
+                    var hayQueued = (resultadoFactura  && resultadoFactura.queued)
+                                 || (resultadoRemision && resultadoRemision.queued);
 
-                    // 8. Espejo local — guardamos los folios que SI se lograron y
-                    //    enviamos los ids_pendientes_sae para que el controller
-                    //    enlace al PedidoWeb recien creado. Asi el job artisan
-                    //    podra actualizar el espejo cuando termine de insertar.
-                    var idPedido = await guardarPedidoWebLocal({
-                        cliente: cliente.CLAVE,
-                        folio_factura:        folioFactura,
-                        folio_remision:       folioRemision,
-                        partidas_sae:         clasificacion.factura.concat(clasificacion.remision),
-                        especiales:           separadas.especiales,
-                        regalo:               regalo,
-                        ids_pendientes_sae:   idsPendientes,
-                    });
+                    // 9. Actualizar el espejo con los folios que SI se lograron. No
+                    //    bloqueante: si falla, el espejo ya existe con sus partidas
+                    //    y el folio se reconcilia despues — no tiene caso mostrar
+                    //    error al cliente por esto. Los encolados ya quedaron
+                    //    enlazados en el paso 8; el cron los completara.
+                    if (folioFactura || folioRemision) {
+                        try {
+                            await actualizarFoliosEspejo(idPedido, folioFactura, folioRemision);
+                        } catch (e) {
+                            console.warn('actualizarFoliosEspejo fallo (no critico):', e);
+                        }
+                    }
 
-                    // 9. Si hay pendientes encolados, mostrar mensaje distinto;
-                    //    sino, redirigir a exito normal
+                    // 10. Si hay pendientes encolados, mostrar mensaje distinto;
+                    //     sino, redirigir a exito normal
                     if (hayQueued) {
                         mostrarPendiente(idPedido);
                     } else {
@@ -1563,7 +1578,7 @@
                 });
             }
 
-            async function insertarEnSaeConRetry(partidas, empresa) {
+            async function insertarEnSaeConRetry(partidas, empresa, idPedidoWeb) {
                 // Inserta el pedido en SAE empresa 1 (factura) o 3 (remision).
                 // Reintenta hasta MAX_INTENTOS_SAE veces con espera de 2s entre
                 // cada uno.
@@ -1601,8 +1616,10 @@
 
                 // Tras MAX_INTENTOS, encolar en backend para que un job artisan
                 // lo procese cada 5 min hasta lograrlo o marcarlo fallido.
+                // Pasamos idPedidoWeb para enlazar el pendiente al espejo ya
+                // creado, asi el cron puede escribir el folio cuando lo logre.
                 console.warn('insertarEnSaeConRetry agoto reintentos para empresa=' + empresa + ', encolando...');
-                var idPendiente = await encolarSaePendiente(partidas, empresa, ultimoError);
+                var idPendiente = await encolarSaePendiente(partidas, empresa, ultimoError, idPedidoWeb);
 
                 return {
                     queued:        true,
@@ -1615,7 +1632,7 @@
             // Llama al endpoint local que guarda el pedido en pedidos_sae_pendientes
             // para retry diferido. Si esto tambien truena, propagamos error al
             // orquestador (no podemos hacer mas en el frontend).
-            async function encolarSaePendiente(partidas, empresa, ultimoError) {
+            async function encolarSaePendiente(partidas, empresa, ultimoError, idPedidoWeb) {
                 var partidasParaSae = (partidas || []).map(function(p) {
                     return partidaParaSae(p, empresa);
                 });
@@ -1629,6 +1646,9 @@
                     // origen 'CW' = carrito. Lo persistimos en pedidos_sae_pendientes
                     // para que el cron lo reenvie con la serie correcta (CAMPLIB13+CW).
                     origen:         'CW',
+                    // id_pedido_web enlaza el pendiente al espejo ya creado, para
+                    // que el cron escriba el folio en pedidos_web cuando lo logre.
+                    id_pedido_web:  idPedidoWeb || null,
                     partidas:       partidasParaSae,
                     ultimo_error:   ultimoError ? ultimoError.message : 'desconocido',
                 };
@@ -1715,18 +1735,13 @@
 
             async function guardarPedidoWebLocal(payload) {
                 // POST a tienda_online.guardar_pedido para crear el espejo del
-                // pedido en pedidos_web (Postgres local). Es lo ultimo del flujo:
-                // ya tenemos folios SAE y pedidos especiales guardados, esto solo
-                // deja constancia local para "Mis pedidos" del cliente.
+                // pedido en pedidos_web (Postgres local). En el flujo v2 esto se
+                // hace ANTES de insertar en SAE, con los folios en null: el
+                // objetivo es que el pedido SIEMPRE quede registrado localmente
+                // aunque SAE o la actualizacion de folios fallen despues. Los
+                // folios se llenan luego via actualizarFoliosEspejo.
                 //
-                // Mandamos folio_factura y folio_remision por separado para que
-                // el controller los persista en pedido_sae y pedido_sae_remision
-                // respectivamente. pedido_sae sigue conteniendo SOLO el folio
-                // de factura (sin breaking change con codigo en produccion que
-                // lo lee como folio principal).
-                //
-                // Devuelve el id local de PedidoWeb para redirigir a la
-                // pantalla de exito.
+                // Devuelve el id local de PedidoWeb.
                 var data = {
                     '_token':            '{{ csrf_token() }}',
                     usuario:             '{{ \Auth::user()->name }}',
@@ -1742,7 +1757,6 @@
                     forma_pago:          $("#forma_pago").val(),
                     uso_cfdi:            $("#uso_cfdi").val(),
                     gran_total:          (gran_total || 0) + (gran_total_especial || 0),
-                    ids_pendientes_sae:  payload.ids_pendientes_sae || [],
                 };
 
                 return new Promise(function(resolve, reject) {
@@ -1762,6 +1776,32 @@
                         .fail(function(xhr) {
                             console.warn('guardarPedidoWebLocal fallo', xhr && xhr.status);
                             reject(new Error('Error de red al registrar el espejo local'));
+                        });
+                });
+            }
+
+            async function actualizarFoliosEspejo(idPedido, folioFactura, folioRemision) {
+                // POST a tienda_online.actualizar_folios para escribir en el
+                // PedidoWeb ya creado los folios SAE que se lograron. Se llama
+                // DESPUES de insertar en SAE. Solo escribe columnas vacias (el
+                // backend no pisa folios ya puestos por el cron).
+                var data = {
+                    '_token':         '{{ csrf_token() }}',
+                    id_pedido:        idPedido,
+                    folio_factura:    folioFactura  || null,
+                    folio_remision:   folioRemision || null,
+                };
+
+                return new Promise(function(resolve, reject) {
+                    $.post("{{ route('tienda_online.actualizar_folios') }}", data)
+                        .done(function(resp) {
+                            var r = (typeof resp === 'string') ? JSON.parse(resp) : resp;
+                            if (r && r.code) resolve(true);
+                            else reject(new Error('No se pudieron actualizar los folios del espejo'));
+                        })
+                        .fail(function(xhr) {
+                            console.warn('actualizarFoliosEspejo fallo', xhr && xhr.status);
+                            reject(new Error('Error de red al actualizar folios del espejo'));
                         });
                 });
             }
