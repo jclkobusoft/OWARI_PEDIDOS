@@ -45,7 +45,7 @@ class HomeController extends Controller
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0);
         $data = curl_exec($ch);
         curl_close($ch);
-        $existencias = ['' => ['CLAVE', 'SAE 1', 'PEDIDOS 1', 'ROJOS 1', 'STOCK 1', 'SAE 3', 'PEDIDOS 3', 'ROJOS 3', 'STOCK 3', 'TOTAL']] + json_decode($data, true);
+        $existencias = ['' => ['CLAVE', 'SAE 1', 'PEDIDOS 1', 'ROJOS 1', 'STOCK 1', 'SAE 3', 'PEDIDOS 3', 'ROJOS 3', 'STOCK 3', 'TOTAL', 'CLAVE PROVEEDOR', 'COSTO', 'COSTO TOTAL']] + json_decode($data, true);
         //dd($existencias);
 
         $csv = Writer::createFromFileObject(new \SplTempFileObject());
