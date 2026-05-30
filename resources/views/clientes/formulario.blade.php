@@ -23,5 +23,14 @@
                 {{ Form::password('password',['class' => 'form-control form-control-sm','placeholder' => 'Contraseña cliente','required' => 'required' ]) }}
              @endif
         </div>
+        @if(isset($cliente))
+            {{-- Permite a ventas reactivar (desmarcar) o suspender manualmente
+                 al cliente. El cron clientes:suspender-inactivos lo marca de
+                 noche; aqui se desbloquea cuando el cliente llama. --}}
+            <div class="mb-3 form-check">
+                {{ Form::checkbox('cuenta_suspendida', '1', $cliente->cuenta_suspendida, ['class' => 'form-check-input', 'id' => 'cuenta_suspendida']) }}
+                {{ Form::label('cuenta_suspendida', 'Cuenta suspendida (no puede usar la tienda)', ['class' => 'form-check-label']) }}
+            </div>
+        @endif
     </div>
 </div>

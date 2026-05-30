@@ -62,17 +62,21 @@ class ClientesController extends Controller
 
     public function actualizar(Request $r,$cliente){
         if(!\Auth::user()->can('clientes_editar'))
-            abort(403, 'No tienes autorizacion');    
+            abort(403, 'No tienes autorizacion');
 
         extract($r->all());
         $cliente = User::find($cliente);
         $cliente->fill([
             'name' => $name,
             'email' => $email,
-            'clave_cliente' => $clave_cliente
+            'clave_cliente' => $clave_cliente,
+            // Checkbox del formulario: si viene marcado llega con valor "1";
+            // si no viene en el request, el cliente queda como ACTIVO. Asi
+            // ventas puede reactivar a quien fue suspendido por el cron.
+            'cuenta_suspendida' => $r->has('cuenta_suspendida'),
         ])->save();
 
-    
+
         if(!is_null($password))
             $cliente->fill(['password' => \Hash::make($password)])->save();
 

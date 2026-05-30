@@ -96,9 +96,12 @@ Route::post('/compras/excel/plantilla/requisicion', [App\Http\Controllers\Compra
 
 
 
-Route::middleware(['auth', 'verified'])->prefix('tienda_online')->group(function () {
+Route::middleware(['auth', 'verified', 'cliente.suspendido'])->prefix('tienda_online')->group(function () {
     //
     Route::get('dashboard', [App\Http\Controllers\TiendaOnlineController::class, 'dashboard'])->name('tienda_online.dashboard');
+    // Pantalla informativa cuando el cliente esta suspendido (users.cuenta_suspendida = true).
+    // El middleware cliente.suspendido redirige aqui cualquier intento de acceder a otra ruta.
+    Route::get('cuenta_suspendida', [App\Http\Controllers\TiendaOnlineController::class, 'cuentaSuspendida'])->name('tienda_online.cuenta_suspendida');
     Route::get('productos', [App\Http\Controllers\TiendaOnlineController::class, 'productos'])->name('tienda_online.productos');
     Route::get('autocompletar', [App\Http\Controllers\TiendaOnlineController::class, 'autocompletar'])->name('tienda_online.autocompletar');
     Route::get('producto/{clave}', [App\Http\Controllers\TiendaOnlineController::class, 'detalleProducto'])->name('tienda_online.detalles_producto');

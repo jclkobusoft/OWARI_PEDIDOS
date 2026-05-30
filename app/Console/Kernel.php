@@ -21,6 +21,13 @@ class Kernel extends ConsoleKernel
                  ->everyFiveMinutes()
                  ->withoutOverlapping()
                  ->runInBackground();
+
+        // Marca como suspendidos los clientes que llevan mas de 30 dias sin
+        // generar pedidos en la tienda en linea. Corre todas las noches a
+        // las 02:00 para no chocar con la actividad del dia.
+        $schedule->command('clientes:suspender-inactivos')
+                 ->dailyAt('02:00')
+                 ->withoutOverlapping();
     }
 
     /**

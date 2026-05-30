@@ -67,5 +67,6 @@ class Kernel extends HttpKernel
         'permission' => \Spatie\Permission\Middlewares\PermissionMiddleware::class,
         'soma.api' => \App\Http\Middleware\SomaInboundApiKey::class,
         'role_or_permission' => \Spatie\Permission\Middlewares\RoleOrPermissionMiddleware::class,
+        'cliente.suspendido' => \App\Http\Middleware\VerificarCuentaSuspendida::class,
     ];
 }

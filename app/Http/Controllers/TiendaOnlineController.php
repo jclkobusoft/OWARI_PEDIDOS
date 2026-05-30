@@ -209,6 +209,17 @@ class TiendaOnlineController extends Controller
     }
 
 
+    /**
+     * Pantalla informativa que ve el cliente cuando su cuenta esta suspendida.
+     * El middleware VerificarCuentaSuspendida lo trae aqui desde cualquier
+     * intento de acceder al resto de la tienda en linea.
+     */
+    public function cuentaSuspendida()
+    {
+        $titulo = "Carrito suspendido";
+        return view('tienda_online.cuenta_suspendida', compact('titulo'));
+    }
+
     public function dashboard()
     {
         $titulo = "Dashboard";
