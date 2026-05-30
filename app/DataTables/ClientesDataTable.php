@@ -26,13 +26,18 @@ class ClientesDataTable extends DataTable
             ->editColumn('created_at',function($q){
                 return \Carbon::createFromFormat('Y-m-d H:i:s',$q->created_at)->format('d/m/Y');
             })
+            ->editColumn('cuenta_suspendida',function($q){
+                return $q->cuenta_suspendida
+                    ? '<span class="badge bg-danger">Suspendido</span>'
+                    : '<span class="badge bg-success">Activo</span>';
+            })
             ->addColumn('accion',function($q){
                 return '<div class="btn-group btn-group-sm" role="group" aria-label="Basic outlined example">
                   <a href="'.route('clientes.editar',$q->id).'" type="button" class="btn btn-warning btn-sm" data-bs-toggle="tooltip" data-bs-placement="top" title="Editar información del cliente"><i class="bi bi-pencil-square"></i></a>
                   <button type="button" class="btn btn-danger btn-sm eliminar_registro" data-id="'.$q->id.'" data-bs-toggle="tooltip" data-bs-placement="top" title="Eliminar al usuario"><i class="bi bi-person-x"></i></button>
                 </div>';
             })
-            ->rawColumns(['accion'])
+            ->rawColumns(['accion','cuenta_suspendida'])
             ->setRowId('id');
     }
 
@@ -88,6 +93,7 @@ class ClientesDataTable extends DataTable
                     Column::make('clave_cliente'),
                     Column::make('name'),
                     Column::make('email'),
+                    Column::make('cuenta_suspendida')->title('Estado'),
                     Column::make('created_at'),
         ];
     }
