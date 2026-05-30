@@ -130,10 +130,39 @@
                 </div>
             </div>
         </section>
+
+        @if (!empty($debeCambiarPassword))
+            <div class="modal fade" id="modalCambiarPassword" tabindex="-1" aria-labelledby="modalCambiarPasswordLabel" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title" id="modalCambiarPasswordLabel">Cambia tu contraseña</h5>
+                        </div>
+                        <div class="modal-body">
+                            <p>Por seguridad te recomendamos cambiar la contraseña con la que entras a la tienda. Solo te tomara un momento.</p>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Mas tarde</button>
+                            <a href="{{ route('tienda_online.editar_cliente') }}" class="btn btn-primary">Cambiar ahora</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        @endif
 @endsection
 @section('css')
 
 @endsection
 @section('js')
+    @if (!empty($debeCambiarPassword))
+        <script>
+            document.addEventListener('DOMContentLoaded', function () {
+                var modalEl = document.getElementById('modalCambiarPassword');
+                if (modalEl && window.bootstrap && bootstrap.Modal) {
+                    new bootstrap.Modal(modalEl).show();
+                }
+            });
+        </script>
+    @endif
 
 @endsection

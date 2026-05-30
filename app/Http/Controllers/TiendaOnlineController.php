@@ -212,7 +212,13 @@ class TiendaOnlineController extends Controller
     public function dashboard()
     {
         $titulo = "Dashboard";
-        return view('tienda_online.dashboard', compact('titulo'));
+        // Flag para mostrar el modal de invitacion a cambiar la contraseña
+        // inicial. Si el cliente ya la cambio alguna vez (password_changed_at)
+        // no aparece. Usuarios admin (cliente=false) tampoco.
+        $debeCambiarPassword = \Auth::check()
+            && \Auth::user()->cliente
+            && is_null(\Auth::user()->password_changed_at);
+        return view('tienda_online.dashboard', compact('titulo', 'debeCambiarPassword'));
     }
 
     public function productos(Request $request)
@@ -1496,11 +1502,18 @@ class TiendaOnlineController extends Controller
 
         extract($r->all());
         $usuario = User::find(\Auth::user()->id);
-        $usuario->fill(['password' => \Hash::make($password)])->save();
+        // Tambien marcamos password_changed_at para que el middleware
+        // ForzarCambioPassword no vuelva a redirigir al cliente al flujo
+        // obligatorio si decide cambiarla desde "Editar cliente".
+        $usuario->fill([
+            'password'            => \Hash::make($password),
+            'password_changed_at' => now(),
+        ])->save();
         \Session::flash('message', 'Tu password se actualizo correctamente.');
         $titulo = "Editar cliente";
         return view('tienda_online.cliente', compact('titulo'));
     }
+
 
 
     public function actualizarTiendita(Request $r)
