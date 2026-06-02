@@ -937,7 +937,7 @@ class TiendaOnlineController extends Controller
                     curl_close($ch);
                     $producto = json_decode($data, true);
 
-                    if ($producto['existencia'] > 0)
+                    if (is_array($producto) && ($producto['existencia'] ?? 0) > 0)
                         array_push($carrito, ['numero_parte' => $premio, 'cantidad' => 1, 'partida' => $producto, 'sustituto' => false]);
                 }
 
@@ -957,6 +957,13 @@ class TiendaOnlineController extends Controller
                 $data = curl_exec($ch);
                 curl_close($ch);
                 $existencias_reales = json_decode($data, true);
+
+                // Si SAE no devolvio info valida para este producto, saltarlo
+                // y seguir con los demas para que el carrito siga abriendo.
+                if (!is_array($existencias_reales)) {
+                    unset($productos[$key]);
+                    continue;
+                }
 
                 // Guardar SIEMPRE la existencia real (sin ficticio) para que la
                 // logica de division (split) pueda usar el stock real.
@@ -984,16 +991,18 @@ class TiendaOnlineController extends Controller
                         $productos[$key]['solicitado'] = $valor['cantidad'];
                         $productos[$key]['solicitado_original'] = $valor['cantidad'];
 
-                        if ($existencias_reales['existencia'] <= 0) {
+                        $existenciaDisp = is_array($existencias_reales) ? ($existencias_reales['existencia'] ?? 0) : 0;
+
+                        if ($existenciaDisp <= 0) {
                             $productos[$key]['existencia_real'] = 0;
                             $productos[$key]['mensaje_existencia'] = 'Ya no hay existencia de este producto. <br> Solicitaste ' . $valor['cantidad'];
                             $productos[$key]['solicitado'] = 0;
                         }
 
 
-                        if ($existencias_reales['existencia'] < $valor['cantidad']) {
-                            $productos[$key]['mensaje_existencia'] = 'Ya no hay existencia completa de este producto. De ' . $valor['cantidad'] . ' paso a ' . $existencias_reales['existencia'];
-                            $productos[$key]['solicitado'] = $existencias_reales['existencia'];
+                        if ($existenciaDisp < $valor['cantidad']) {
+                            $productos[$key]['mensaje_existencia'] = 'Ya no hay existencia completa de este producto. De ' . $valor['cantidad'] . ' paso a ' . $existenciaDisp;
+                            $productos[$key]['solicitado'] = $existenciaDisp;
                         }
 
 
@@ -1967,7 +1976,7 @@ class TiendaOnlineController extends Controller
                     curl_close($ch);
                     $producto = json_decode($data, true);
 
-                    if ($producto['existencia'] > 0)
+                    if (is_array($producto) && ($producto['existencia'] ?? 0) > 0)
                         array_push($carrito, ['numero_parte' => $premio, 'cantidad' => 1, 'partida' => $producto, 'sustituto' => false]);
                 }
 
@@ -1987,6 +1996,13 @@ class TiendaOnlineController extends Controller
                 $data = curl_exec($ch);
                 curl_close($ch);
                 $existencias_reales = json_decode($data, true);
+
+                // Si SAE no devolvio info valida para este producto, saltarlo
+                // y seguir con los demas para que el carrito siga abriendo.
+                if (!is_array($existencias_reales)) {
+                    unset($productos[$key]);
+                    continue;
+                }
 
                 // Guardar SIEMPRE la existencia real (sin ficticio) para que la
                 // logica de division (split) pueda usar el stock real.
@@ -2014,16 +2030,18 @@ class TiendaOnlineController extends Controller
                         $productos[$key]['solicitado'] = $valor['cantidad'];
                         $productos[$key]['solicitado_original'] = $valor['cantidad'];
 
-                        if ($existencias_reales['existencia'] <= 0) {
+                        $existenciaDisp = is_array($existencias_reales) ? ($existencias_reales['existencia'] ?? 0) : 0;
+
+                        if ($existenciaDisp <= 0) {
                             $productos[$key]['existencia_real'] = 0;
                             $productos[$key]['mensaje_existencia'] = 'Ya no hay existencia de este producto. <br> Solicitaste ' . $valor['cantidad'];
                             $productos[$key]['solicitado'] = 0;
                         }
 
 
-                        if ($existencias_reales['existencia'] < $valor['cantidad']) {
-                            $productos[$key]['mensaje_existencia'] = 'Ya no hay existencia completa de este producto. De ' . $valor['cantidad'] . ' paso a ' . $existencias_reales['existencia'];
-                            $productos[$key]['solicitado'] = $existencias_reales['existencia'];
+                        if ($existenciaDisp < $valor['cantidad']) {
+                            $productos[$key]['mensaje_existencia'] = 'Ya no hay existencia completa de este producto. De ' . $valor['cantidad'] . ' paso a ' . $existenciaDisp;
+                            $productos[$key]['solicitado'] = $existenciaDisp;
                         }
 
 
