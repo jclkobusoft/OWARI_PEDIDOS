@@ -33,6 +33,10 @@ class ClientesController extends Controller
 
         extract($r->all());
 
+        if(in_array($clave_cliente, ['-1', '', null], true)){
+            return \Redirect::back()->withInput()->withErrors(['msg' => 'Debes seleccionar un cliente del catalogo SAE en el campo "Cliente SAE" antes de guardar.']);
+        }
+
         $cliente = User::where('email',$email)->first();
         if($cliente){
             return \Redirect::back()->withInput()->withErrors(['msg' => 'El email ingresado ya esta registrado con otro cliente.']);
@@ -65,6 +69,11 @@ class ClientesController extends Controller
             abort(403, 'No tienes autorizacion');
 
         extract($r->all());
+
+        if(in_array($clave_cliente, ['-1', '', null], true)){
+            return \Redirect::back()->withInput()->withErrors(['msg' => 'Debes seleccionar un cliente del catalogo SAE en el campo "Cliente SAE" antes de guardar.']);
+        }
+
         $cliente = User::find($cliente);
         $cliente->fill([
             'name' => $name,
