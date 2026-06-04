@@ -51,6 +51,9 @@ return [
         'url'    => env('ALTIRIA_URL', 'https://api.altiria.com/api/rest/sms'),
         'token'  => env('ALTIRIA_AUTH_TOKEN'),
         'sender' => env('ALTIRIA_SENDER', 'OWARI'),
+        // Numero (admin) que recibe el SMS de resumen tras cada corrida del
+        // recordatorio, para validar cuantos se enviaron.
+        'resumen_tel' => env('ALTIRIA_RESUMEN_TEL', '525520677410'),
     ],
 
 ];

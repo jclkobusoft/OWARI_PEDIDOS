@@ -100,8 +100,42 @@ class RecordatorioSmsInactivos extends Command
         if (!$dryRun) {
             Log::info('clientes:recordatorio-sms', ['enviados' => $enviados, 'fallidos' => $fallidos]);
             $this->info("Listo. Enviados: {$enviados} | Fallidos: {$fallidos}");
+
+            // SMS de resumen al admin para validar el envio. Solo si hubo
+            // intentos de envio (enviados o fallidos > 0).
+            if (($enviados + $fallidos) > 0) {
+                $this->enviarResumen($sms, $destinatarios->count(), $enviados, $fallidos);
+            }
         }
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Manda un SMS de resumen al numero admin configurado (ALTIRIA_RESUMEN_TEL).
+     * Un fallo aqui no interrumpe el comando: solo se loguea.
+     */
+    private function enviarResumen(AltiriaSms $sms, int $total, int $enviados, int $fallidos): void
+    {
+        $tel = config('services.altiria.resumen_tel');
+        if (empty($tel)) {
+            return;
+        }
+
+        $resumen = sprintf(
+            'OWARI recordatorios %s: %d enviados, %d fallidos de %d clientes.',
+            now()->format('d/m/Y'),
+            $enviados,
+            $fallidos,
+            $total
+        );
+
+        $res = $sms->enviar($tel, $resumen);
+        if ($res['ok']) {
+            $this->info("Resumen enviado a {$tel}.");
+        } else {
+            $this->warn("No se pudo enviar el resumen a {$tel}: {$res['error']}");
+            Log::warning('clientes:recordatorio-sms resumen fallo', ['tel' => $tel, 'error' => $res['error']]);
+        }
     }
 }
