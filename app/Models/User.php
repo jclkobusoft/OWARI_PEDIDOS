@@ -29,6 +29,7 @@ class User extends Authenticatable implements MustVerifyEmail
         'password_changed_at',
         'cliente',
         'cuenta_suspendida',
+        'sms_recordatorio_enviado_at',
         'clave_cliente',
         'vendedor_sae',
         'email_verified_at'
@@ -50,9 +51,10 @@ class User extends Authenticatable implements MustVerifyEmail
      * @var array<string, string>
      */
     protected $casts = [
-        'email_verified_at'   => 'datetime',
-        'password_changed_at' => 'datetime',
-        'cuenta_suspendida'   => 'boolean',
+        'email_verified_at'           => 'datetime',
+        'password_changed_at'         => 'datetime',
+        'cuenta_suspendida'           => 'boolean',
+        'sms_recordatorio_enviado_at' => 'datetime',
     ];
 
     public function clienteData()

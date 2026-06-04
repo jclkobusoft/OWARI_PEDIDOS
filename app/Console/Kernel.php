@@ -28,6 +28,12 @@ class Kernel extends ConsoleKernel
         $schedule->command('clientes:suspender-inactivos')
                  ->dailyAt('02:00')
                  ->withoutOverlapping();
+
+        // Envia SMS recordatorio (Altiria) a clientes con telefono y 15+ dias
+        // sin pedido. A las 10:00 (horario habil) para no molestar de noche.
+        $schedule->command('clientes:recordatorio-sms')
+                 ->dailyAt('10:00')
+                 ->withoutOverlapping();
     }
 
     /**

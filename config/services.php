@@ -44,4 +44,13 @@ return [
         'api_key' => env('SOMA_INBOUND_API_KEY'),
     ],
 
+    // Altiria SMS — recordatorios a clientes inactivos. `token` es el valor que
+    // va despues de "Basic " en el header Authorization. `sender` es el
+    // remitente alfanumerico (max 11 chars) que vera el cliente.
+    'altiria' => [
+        'url'    => env('ALTIRIA_URL', 'https://api.altiria.com/api/rest/sms'),
+        'token'  => env('ALTIRIA_AUTH_TOKEN'),
+        'sender' => env('ALTIRIA_SENDER', 'OWARI'),
+    ],
+
 ];
