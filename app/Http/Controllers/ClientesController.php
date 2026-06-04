@@ -22,7 +22,7 @@ class ClientesController extends Controller
     public function agregar(){
         if(!\Auth::user()->can('clientes_crear'))
             abort(403, 'No tienes autorizacion');
-        
+
 
         return view('clientes.agregar');
     }
@@ -65,6 +65,8 @@ class ClientesController extends Controller
     }
 
     public function actualizar(Request $r,$cliente){
+
+        dd($request->all());
         if(!\Auth::user()->can('clientes_editar'))
             abort(403, 'No tienes autorizacion');
 

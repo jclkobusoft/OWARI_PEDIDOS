@@ -130,6 +130,9 @@ Route::middleware(['auth', 'verified', 'cliente.suspendido'])->prefix('tienda_on
     Route::get('generar_pdf', [App\Http\Controllers\TiendaOnlineController::class, 'generarPDF'])->name('tienda_online.generar_pdf');
 
     Route::get('/pedidos_especiales', [App\Http\Controllers\PedidosEspecialesController::class, 'index'])->name('pedidos_especiales.index');
+    // Reporte CSV de partidas pendientes de surtir por mes (debe ir antes de
+    // la ruta con {pedido} para no chocar con el wildcard).
+    Route::get('/pedidos_especiales/reporte_pendientes', [App\Http\Controllers\PedidosEspecialesController::class, 'reportePendientes'])->name('pedidos_especiales.reporte_pendientes');
     Route::delete('/pedidos_especiales/eliminar', [App\Http\Controllers\PedidosEspecialesController::class, 'eliminar'])->name('pedidos_especiales.eliminar');
     Route::get('/pedidos_especiales/{pedido}/ver', [App\Http\Controllers\PedidosEspecialesController::class, 'ver'])->name('pedidos_especiales.ver');
 
