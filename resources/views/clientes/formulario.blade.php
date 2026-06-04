@@ -16,6 +16,10 @@
             {{ Form::email('email',null,['class' => 'form-control form-control-sm','placeholder' => 'Email del cliente','required' => 'required' ]) }}
         </div>
         <div class="mb-3">
+            {{ Form::label('phone', 'Telefono',['class' => 'form-label']) }}
+            {{ Form::text('phone',null,['class' => 'form-control form-control-sm','placeholder' => 'Telefono del cliente']) }}
+        </div>
+        <div class="mb-3">
              {{ Form::label('password', 'Contraseña',['class' => 'form-label']) }}
              @if(isset($cliente))
                 {{ Form::password('password',['class' => 'form-control form-control-sm','placeholder' => 'Contraseña cliente']) }}

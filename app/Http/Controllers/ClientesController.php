@@ -44,6 +44,7 @@ class ClientesController extends Controller
         $cliente = User::create([
             'name' => $name,
             'email' => $email,
+            'phone' => $r->input('phone'),
             'password' => \Hash::make($password),
             'cliente' => true,
             'clave_cliente' => $clave_cliente,
@@ -78,6 +79,7 @@ class ClientesController extends Controller
         $cliente->fill([
             'name' => $name,
             'email' => $email,
+            'phone' => $r->input('phone'),
             'clave_cliente' => $clave_cliente,
             // Checkbox del formulario: si viene marcado llega con valor "1";
             // si no viene en el request, el cliente queda como ACTIVO. Asi
