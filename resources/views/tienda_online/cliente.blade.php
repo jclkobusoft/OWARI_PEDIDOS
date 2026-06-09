@@ -90,7 +90,7 @@
                             <p>
                                 Desde ahora los precios en pantalla se muestran con un aumento del
                                 <b>{{ Session::get('porcentaje_tiendita') }}%</b> sobre el precio de mayoreo.
-                                Esos son los precios que veran tus clientes y tambien los que veras tu mientras la tiendita este activa.
+                                Esos son los precios que se mostrarán mientras la tiendita este activa.
                             </p>
                         </div>
                         <div class="modal-footer">
