@@ -29,6 +29,7 @@ class User extends Authenticatable implements MustVerifyEmail
         'password_changed_at',
         'cliente',
         'cuenta_suspendida',
+        'reactivated_at',
         'sms_recordatorio_enviado_at',
         'clave_cliente',
         'vendedor_sae',
@@ -54,6 +55,7 @@ class User extends Authenticatable implements MustVerifyEmail
         'email_verified_at'           => 'datetime',
         'password_changed_at'         => 'datetime',
         'cuenta_suspendida'           => 'boolean',
+        'reactivated_at'              => 'datetime',
         'sms_recordatorio_enviado_at' => 'datetime',
     ];
 

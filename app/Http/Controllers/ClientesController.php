@@ -76,7 +76,15 @@ class ClientesController extends Controller
         }
 
         $cliente = User::find($cliente);
-        $cliente->fill([
+
+        // Detectar transicion del checkbox `cuenta_suspendida` para mantener
+        // el timestamp `reactivated_at`. El cron de suspension usa ese campo
+        // para darle al cliente 5 dias de gracia desde su reactivacion antes
+        // de volver a evaluarlo.
+        $estabaSuspendido = (bool) $cliente->cuenta_suspendida;
+        $ahoraSuspendido  = $r->has('cuenta_suspendida');
+
+        $datos = [
             'name' => $name,
             'email' => $email,
             'phone' => $r->input('phone'),
@@ -84,8 +92,18 @@ class ClientesController extends Controller
             // Checkbox del formulario: si viene marcado llega con valor "1";
             // si no viene en el request, el cliente queda como ACTIVO. Asi
             // ventas puede reactivar a quien fue suspendido por el cron.
-            'cuenta_suspendida' => $r->has('cuenta_suspendida'),
-        ])->save();
+            'cuenta_suspendida' => $ahoraSuspendido,
+        ];
+
+        if ($estabaSuspendido && !$ahoraSuspendido) {
+            // Reactivacion manual: arranca la ventana de gracia.
+            $datos['reactivated_at'] = now();
+        } elseif (!$estabaSuspendido && $ahoraSuspendido) {
+            // Suspension manual: rompe el ciclo, el cron evalua normal.
+            $datos['reactivated_at'] = null;
+        }
+
+        $cliente->fill($datos)->save();
 
 
         if(!is_null($password))

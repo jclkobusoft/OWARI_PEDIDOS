@@ -23,11 +23,19 @@ use Illuminate\Support\Facades\Log;
  * han generado un pedido (cliente nuevo) — el HAVING los excluye porque no
  * estan en pedidos_web.
  *
+ * Ventana de gracia: los clientes que fueron reactivados manualmente por
+ * ventas en los ultimos DIAS_GRACIA_REACTIVACION dias quedan excluidos del
+ * re-suspender para darles tiempo a generar un nuevo pedido. Si compran en
+ * esa ventana, su MAX(created_at) en pedidos_web los saca del query natural.
+ * Si no compran, al expirar la gracia el cron los vuelve a suspender.
+ *
  * Uso:   php artisan clientes:suspender-inactivos
  * Cron:  todas las noches a las 02:00 (ver App\Console\Kernel::schedule).
  */
 class SuspenderClientesInactivos extends Command
 {
+    private const DIAS_GRACIA_REACTIVACION = 5;
+
     protected $signature   = 'clientes:suspender-inactivos
                               {--dry-run : Solo lista los clientes a suspender, no actualiza}';
     protected $description = 'Marca cuenta_suspendida=true en clientes con mas de 30 dias sin pedidos_web';
@@ -50,13 +58,15 @@ class SuspenderClientesInactivos extends Command
         }
 
         // Tomar solo usuarios que sean cliente y que aun no esten suspendidos.
-        $usuarios = User::where('cliente', true)
-            ->where('cuenta_suspendida', false)
-            ->whereIn('clave_cliente', $clavesInactivas)
-            ->get(['id', 'clave_cliente', 'name', 'email']);
+        // Excluimos a los que estan dentro de la ventana de gracia post-reactivacion.
+        $usuarios = $this->aplicarFiltroGracia(
+            User::where('cliente', true)
+                ->where('cuenta_suspendida', false)
+                ->whereIn('clave_cliente', $clavesInactivas)
+        )->get(['id', 'clave_cliente', 'name', 'email']);
 
         if ($usuarios->isEmpty()) {
-            $this->info('Los ' . count($clavesInactivas) . ' clientes con inactividad ya estan suspendidos. Nada por hacer.');
+            $this->info('Los ' . count($clavesInactivas) . ' clientes con inactividad ya estan suspendidos o en gracia. Nada por hacer.');
             return self::SUCCESS;
         }
 
@@ -69,14 +79,28 @@ class SuspenderClientesInactivos extends Command
             return self::SUCCESS;
         }
 
-        $afectados = User::where('cliente', true)
-            ->where('cuenta_suspendida', false)
-            ->whereIn('clave_cliente', $clavesInactivas)
-            ->update(['cuenta_suspendida' => true]);
+        $afectados = $this->aplicarFiltroGracia(
+            User::where('cliente', true)
+                ->where('cuenta_suspendida', false)
+                ->whereIn('clave_cliente', $clavesInactivas)
+        )->update(['cuenta_suspendida' => true]);
 
         Log::info('clientes:suspender-inactivos', ['suspendidos' => $afectados]);
         $this->info("Listo. {$afectados} clientes marcados como suspendidos.");
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Excluye del query a los usuarios cuya reactivacion manual es mas reciente
+     * que la ventana de gracia. Reusable entre la query de listado y el update
+     * para garantizar misma regla en ambos puntos.
+     */
+    private function aplicarFiltroGracia($query)
+    {
+        return $query->where(function ($q) {
+            $q->whereNull('reactivated_at')
+              ->orWhere('reactivated_at', '<', now()->subDays(self::DIAS_GRACIA_REACTIVACION));
+        });
     }
 }

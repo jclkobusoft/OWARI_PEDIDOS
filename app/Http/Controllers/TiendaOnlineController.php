@@ -1539,16 +1539,27 @@ class TiendaOnlineController extends Controller
     public function actualizarTiendita(Request $r)
     {
         extract($r->all());
+
+        $activarTiendita = $r->has('activar_tiendita');
+        $porcentajeInput = (float) $r->input('porcentaje', 0);
+
+        // Si se esta activando la tiendita, el porcentaje es obligatorio (>0).
+        // Sin esa validacion el cliente activaba la tiendita sin margen, veia
+        // los precios "raros" y llamaba a soporte pensando que no podia ver
+        // sus propios precios.
+        if ($activarTiendita && $porcentajeInput <= 0) {
+            \Session::flash('error_tiendita', 'Para activar tu tiendita debes ingresar un porcentaje mayor a 0.');
+            return redirect()->back();
+        }
+
         $cliente = Cliente::where('id_usuario', \Auth::user()->id)->first();
         if (!$cliente) {
             $cliente = Cliente::create([
                 'id_usuario' => \Auth::user()->id
             ]);
         }
-        $data = ['tiendita' => false];
 
-        if (isset($activar_tiendita))
-            $data['tiendita'] = true;
+        $data = ['tiendita' => $activarTiendita];
 
         if (isset($logotipo)) {
             $filename = uniqid() . '.' . \File::extension($logotipo->getClientOriginalName());
@@ -1556,11 +1567,20 @@ class TiendaOnlineController extends Controller
             $data['logotipo'] = $filename;
         }
 
-        if ($porcentaje > 0)
-            $data['porcentaje'] = $porcentaje;
+        if ($porcentajeInput > 0)
+            $data['porcentaje'] = $porcentajeInput;
 
         $cliente->fill($data)->save();
         \Session::flash('message', 'Tu información se actualizo correctamente.');
+
+        // Si quedo activa la tiendita, mostramos modal explicando que los
+        // precios visibles ahora incluyen el margen — para evitar que el
+        // cliente piense que esos son sus precios.
+        if ($activarTiendita) {
+            \Session::flash('mostrar_modal_tiendita', true);
+            \Session::flash('porcentaje_tiendita', $porcentajeInput);
+        }
+
         $titulo = "Editar cliente";
         return view('tienda_online.cliente', compact('titulo'));
 
