@@ -1717,19 +1717,24 @@
             }
 
             // Construye el shape que guardar_v2 espera para una partida.
-            // Reglas:
-            //   - empresa 1 (factura): precio sin IVA, total con IVA
-            //   - empresa 3 (remision): precio sin IVA, total sin IVA
+            // El precio FINAL es el mismo en ambas sucursales (no cambia el total):
+            //   - empresa 1 (factura): precio unitario SIN IVA; SAE le suma el
+            //     16% (IMPU4) y el total queda con IVA.
+            //   - empresa 3 (remision): SAE no maneja impuestos, asi que el
+            //     precio unitario va YA CON IVA (sin linea de impuesto) para que
+            //     el total quede igual que en factura.
+            // p.precio = precio con IVA (mostrado); p.precio_iva = precio sin IVA.
             function partidaParaSae(p, empresa) {
                 var cantidad     = parseInt(p.cantidad) || 0;
                 var precioSinIva = parseFloat(p.precio_iva) || 0;
+                var precioConIva = parseFloat(p.precio) || 0;
                 var totalConIva  = parseFloat(p.total) || 0;
 
                 return {
                     clave:    p.codigo,
                     cantidad: cantidad,
-                    precio:   precioSinIva,
-                    total:    empresa === 1 ? totalConIva : (precioSinIva * cantidad),
+                    precio:   empresa === 1 ? precioSinIva : precioConIva,
+                    total:    totalConIva,
                 };
             }
 
