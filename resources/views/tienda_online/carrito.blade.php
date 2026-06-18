@@ -963,16 +963,17 @@
                     // 1. Datos del cliente desde SAE (CLASIFIC + CAMPLIB3)
                     var cliente = await obtenerClienteSae();
 
-                    // 2. Espejo en SOMA (todo el pedido tal cual; no bloqueante)
-                    capturarEnSoma(cliente, todasLasPartidas());
+                    // 2. (El espejo en SOMA se manda AL FINAL, ya con los folios SAE
+                    //     reales — ver paso 9b — para poder comparar SOMA vs SAE.)
 
                     // 3. Separar partidas en {sae, especiales}
                     //    especiales es un mapa {claveProveedor: [...]} con los grupos
                     //    de cada proveedor especial (S227, AAAA, etc.)
                     var separadas = separarPartidas();
 
-                    // 4. Guardar pedidos especiales (uno por proveedor)
-                    await guardarEspecialesGenerales(separadas.especiales);
+                    // 4. Guardar pedidos especiales (uno por proveedor).
+                    //    Captura los ids de los PedidoEspecial para mandarlos a SOMA.
+                    var idsEspeciales = await guardarEspecialesGenerales(separadas.especiales);
                     especialesYaCreados = true;
 
                     // 5. Clasificar SAE por empresa segun CLASIFIC del cliente.
@@ -1038,6 +1039,16 @@
                             console.warn('actualizarFoliosEspejo fallo (no critico):', e);
                         }
                     }
+
+                    // 9b. Espejo en SOMA con los folios SAE reales (fire-and-forget).
+                    //     Se manda SIEMPRE con las partidas completas + los folios que
+                    //     SÍ se lograron (el que haya quedado en cola va como null).
+                    //     Así SOMA tiene el pedido completo aunque un folio se difiera.
+                    capturarEnSoma(cliente, todasLasPartidas(), {
+                        folio_sae_e01: folioFactura,
+                        folio_sae_e03: folioRemision,
+                        id_especial:   idsEspeciales,
+                    });
 
                     // 10. Si hay pendientes encolados, mostrar mensaje distinto;
                     //     sino, redirigir a exito normal
@@ -1387,7 +1398,7 @@
             // HELPERS — ENVIO A ENDPOINTS
             // ──────────────────────────────────────────────────────────────────
 
-            function capturarEnSoma(cliente, partidas) {
+            function capturarEnSoma(cliente, partidas, foliosSae) {
                 // POST al proxy local soma.capturar_proxy, que reenvia a SOMA
                 // /api/pedidos/capturar con X-API-Key.
                 //
@@ -1395,9 +1406,13 @@
                 // sigue normal (graceful degradation). Si SOMA acepta, queda
                 // espejo del pedido alla.
                 //
-                // SOMA es la fuente de verdad nueva: recibe TODAS las partidas
-                // (cart + cartEspecial) sin separar; aplica sus reglas internas
-                // (politicas, descuentos, division normal/especial, etc.).
+                // SOMA recibe TODAS las partidas (cart + cartEspecial) sin separar
+                // y aplica sus reglas internas (politicas, descuentos, division
+                // normal/especial, etc.).
+                //
+                // foliosSae (opcional): { folio_sae_e01, folio_sae_e03, id_especial[] }
+                // con los folios del documento REAL en SAE/origen, para que SOMA
+                // los guarde y se pueda comparar SOMA vs SAE en su pantalla.
                 try {
                     var idEnvio = (window.crypto && crypto.randomUUID)
                         ? crypto.randomUUID()
@@ -1415,6 +1430,12 @@
                         destino_sucursal:  'E01',
                         gran_total_origen: (gran_total || 0) + (gran_total_especial || 0),
                     };
+
+                    if (foliosSae) {
+                        payload.folio_sae_e01 = foliosSae.folio_sae_e01 || null;
+                        payload.folio_sae_e03 = foliosSae.folio_sae_e03 || null;
+                        payload.id_especial   = foliosSae.id_especial   || [];
+                    }
 
                     fetch("{{ route('soma.capturar_proxy') }}", {
                         method: 'POST',
@@ -1539,7 +1560,10 @@
                 //
                 // Si una llamada truena, loguea warning y continua con las
                 // demas — no bloquea el flujo del pedido.
-                if (!especialesPorProveedor) return;
+                // Devuelve los ids de los PedidoEspecial creados (uno por proveedor),
+                // para mandarlos a SOMA y comparar contra el/los PE que SOMA genera.
+                var idsEspeciales = [];
+                if (!especialesPorProveedor) return idsEspeciales;
 
                 var claves = Object.keys(especialesPorProveedor);
                 for (var i = 0; i < claves.length; i++) {
@@ -1557,23 +1581,33 @@
                         data.clave_proveedor = claveProveedor;
                     }
 
-                    await guardarEspecialUnGrupo(data, claveProveedor);
+                    var idEsp = await guardarEspecialUnGrupo(data, claveProveedor);
+                    if (idEsp) idsEspeciales.push(idEsp);
                 }
+                return idsEspeciales;
             }
 
             // Wrapper que envuelve $.post en una promise para usar con await,
             // y no truena el flujo si una falla — solo loguea warning.
+            // Resuelve con el id del PedidoEspecial creado (o null si falla).
             function guardarEspecialUnGrupo(data, claveProveedor) {
                 return new Promise(function(resolve) {
                     $.post("{{ route('pedidos.guardar_especial') }}", data)
-                        .done(function() { resolve(); })
+                        .done(function(resp) {
+                            try {
+                                var r = (typeof resp === 'string') ? JSON.parse(resp) : resp;
+                                resolve(r && r.id_pedido ? r.id_pedido : null);
+                            } catch (e) {
+                                resolve(null);
+                            }
+                        })
                         .fail(function(xhr) {
                             console.warn(
                                 'guardarEspecialesGenerales fallo proveedor=' + claveProveedor,
                                 xhr && xhr.status,
                                 xhr && xhr.responseText
                             );
-                            resolve();   // continuar con el siguiente proveedor
+                            resolve(null);   // continuar con el siguiente proveedor
                         });
                 });
             }
