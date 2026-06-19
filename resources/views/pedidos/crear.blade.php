@@ -1313,8 +1313,10 @@
                 var separadas = separarPartidas();
 
                 // 5. Guardar pedidos especiales (uno por proveedor).
-                //    Captura los ids de los PedidoEspecial para mandarlos a SOMA.
-                var idsEspeciales = await guardarEspecialesGenerales(separadas.especiales, cliente.clave);
+                //    Captura los ids de los PedidoEspecial (y su # de partidas) para mandarlos a SOMA.
+                var especialesCreados     = await guardarEspecialesGenerales(separadas.especiales, cliente.clave);
+                var idsEspeciales         = especialesCreados.map(function (e) { return e.id; });
+                var numPartidasEspeciales = especialesCreados.map(function (e) { return e.num; });
 
                 // 6. Clasificar SAE por empresa
                 var clasificacion = clasificarPorEmpresa(separadas.sae, cliente.CLASIFIC, tipoRadio, cliente.EXISTE_E3);
@@ -1355,6 +1357,9 @@
                     folio_sae_e01: foliosFactura,
                     folio_sae_e03: foliosRemision,
                     id_especial:   idsEspeciales,
+                    partidas_sae_e01:  dividirEnChunks(clasificacion.factura,  CHUNK_SIZE_SAE).map(function (c) { return c.length; }),
+                    partidas_sae_e03:  dividirEnChunks(clasificacion.remision, CHUNK_SIZE_SAE).map(function (c) { return c.length; }),
+                    partidas_especial: numPartidasEspeciales,
                 });
 
             } catch (err) {
@@ -1798,6 +1803,9 @@
                     payload.folio_sae_e01 = foliosSae.folio_sae_e01 || [];
                     payload.folio_sae_e03 = foliosSae.folio_sae_e03 || [];
                     payload.id_especial   = foliosSae.id_especial   || [];
+                    payload.partidas_sae_e01  = foliosSae.partidas_sae_e01  || [];
+                    payload.partidas_sae_e03  = foliosSae.partidas_sae_e03  || [];
+                    payload.partidas_especial = foliosSae.partidas_especial || [];
                 }
 
                 fetch("{{ route('soma.capturar_proxy') }}", {
@@ -1960,7 +1968,7 @@
                 }
 
                 var idEsp = await guardarEspecialUnGrupo(data, claveProveedor);
-                if (idEsp) idsEspeciales.push(idEsp);
+                if (idEsp) idsEspeciales.push({ id: idEsp, num: partidasGrupo.length });
             }
             return idsEspeciales;
         }
