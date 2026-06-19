@@ -333,8 +333,15 @@
 
         const analisis_precios = ($cliente,$clave,$cantidad,$idpaloma) => {
 
+            // Los pedidos especiales SIEMPRE se convierten a SAE como factura
+            // (empresa 1), por eso cotizamos forzando tipo='factura'. Asi
+            // buscarProductoEspecial fuerza id_empresa=1 y aplica el *1.16, de
+            // modo que el precio/total llegan CON IVA y SAE calcula bien el
+            // TOTIMP4. Antes leia un radio 'tipo_pedido' inexistente en esta
+            // vista -> tipo vacio -> si el stock estaba en remision se cotizaba
+            // sin IVA y la partida entraba a SAE con IVA = 0.
             $.get("https://sistemasowari.com:8443/catalowari/api/empresa_buscar_producto_especial",
-                { cliente: $cliente, clave: $clave, tipo: $("input:radio[name ='tipo_pedido']:checked").val() },
+                { cliente: $cliente, clave: $clave, tipo: 'factura' },
                 function (data) {
                     //console.log(data);
                     var obj = data;
