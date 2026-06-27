@@ -149,6 +149,8 @@
                 </div>
             </div>
         @endif
+
+        @include('tienda_online.partials.modal_flyers')
 @endsection
 @section('css')
 
