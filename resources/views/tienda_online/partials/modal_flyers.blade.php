@@ -7,9 +7,12 @@
         background:rgba(0,0,0,0.82); backdrop-filter:blur(3px); -webkit-backdrop-filter:blur(3px); padding:18px; }
     #flyers-overlay .flyers-wrap { position:relative; display:flex; flex-direction:column; align-items:center; gap:16px; max-height:96vh; }
     #flyers-overlay .flyers-promo-title { display:block; text-align:center; text-decoration:none; color:#fff;
-        font-weight:800; font-size:clamp(20px,4vw,38px); line-height:1.1; letter-spacing:.5px;
-        text-shadow:0 2px 10px rgba(0,0,0,0.55); animation:flyersBlink 1s steps(1,end) infinite; }
-    #flyers-overlay .flyers-promo-title:hover { text-decoration:underline; }
+        text-shadow:0 2px 10px rgba(0,0,0,0.55); }
+    #flyers-overlay .flyers-promo-main { display:block; font-weight:800; font-size:clamp(20px,4vw,38px);
+        line-height:1.1; letter-spacing:.5px; animation:flyersBlink 1s steps(1,end) infinite; }
+    #flyers-overlay .flyers-promo-title:hover .flyers-promo-main { text-decoration:underline; }
+    #flyers-overlay .flyers-promo-sub { display:block; margin-top:4px; color:#fff; font-weight:400;
+        font-size:clamp(11px,1.6vw,15px); letter-spacing:.3px; opacity:.9; }
     @keyframes flyersBlink { 50% { opacity:0.25; } }
     #flyers-overlay .flyers-box { position:relative; display:flex; flex-direction:row; flex-wrap:wrap;
         gap:14px; justify-content:center; align-items:center; max-width:800px; max-height:82vh; }
@@ -29,7 +32,8 @@
 <div id="flyers-overlay" role="dialog" aria-modal="true" aria-label="Promociones">
     <div class="flyers-wrap">
         <a href="{{ route('tienda_online.promociones_excel') }}" class="flyers-promo-title" target="_blank" rel="noopener">
-            Descarga todas nuestras promociones
+            <span class="flyers-promo-main">Descarga todas nuestras promociones</span>
+            <span class="flyers-promo-sub">actualizamos diariamente</span>
         </a>
         <div class="flyers-box">
             <button id="flyers-close" type="button" aria-label="Cerrar">&times;</button>
