@@ -15,12 +15,13 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule(Schedule $schedule)
     {
+        // DESACTIVADO 2026-07-03 (por solicitud del cliente, no es necesario):
         // Reintenta los pedidos SAE que el carrito dejo en cola tras
         // sus 5 reintentos en frontend.
-        $schedule->command('pedidos:procesar-sae-pendientes')
-                 ->everyFiveMinutes()
-                 ->withoutOverlapping()
-                 ->runInBackground();
+        // $schedule->command('pedidos:procesar-sae-pendientes')
+        //          ->everyFiveMinutes()
+        //          ->withoutOverlapping()
+        //          ->runInBackground();
 
         // Marca como suspendidos los clientes que llevan mas de 30 dias sin
         // generar pedidos en la tienda en linea. Corre todas las noches a
@@ -29,11 +30,12 @@ class Kernel extends ConsoleKernel
                  ->dailyAt('02:00')
                  ->withoutOverlapping();
 
+        // DESACTIVADO 2026-07-03 (por solicitud del cliente, no es necesario):
         // Envia SMS recordatorio (Altiria) a clientes con telefono y 15+ dias
         // sin pedido. A las 10:00 (horario habil) para no molestar de noche.
-        $schedule->command('clientes:recordatorio-sms')
-                 ->dailyAt('10:00')
-                 ->withoutOverlapping();
+        // $schedule->command('clientes:recordatorio-sms')
+        //          ->dailyAt('10:00')
+        //          ->withoutOverlapping();
 
         // Regenera el Excel de promociones globales de la tienda a las 02:00,
         // que el cliente descarga desde /tienda_online/promociones.xlsx.
