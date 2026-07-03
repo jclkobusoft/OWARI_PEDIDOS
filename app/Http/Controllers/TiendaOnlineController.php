@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 use App\Imports\CarritoExcelImport;
 
 use App\Models\DatosGenerales;
@@ -1518,6 +1519,16 @@ class TiendaOnlineController extends Controller
     public function descuentos(Request $request)
     {
         $titulo = "Descuentos";
+
+        // Filtros de la barra lateral (opcionales). Si vienen, la vista muestra
+        // solo ese grupo/subgrupo, siempre paginado.
+        $grupoFiltro    = trim((string) $request->query('grupo', ''));
+        $subgrupoFiltro = trim((string) $request->query('subgrupo', ''));
+
+        // 1) Lista de productos con descuento + vigencia. Los descuentos viven
+        //    en SAE (politicas POLI01), por eso esta lista sigue viniendo del
+        //    externo. Devuelve [{clave, vigencia}] con la fecha mas proxima a
+        //    vencer por producto (o null si la promo no expira).
         $url = 'https://sistemasowari.com:8443/catalowari/api/productos-descuentos?' . http_build_query(["cliente" => \Auth::user()->clave_cliente]);
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, $url);
@@ -1529,21 +1540,113 @@ class TiendaOnlineController extends Controller
         curl_close($ch);
         $data = json_decode($data, true);
 
+        $items = (is_array($data) && isset($data['productos']) && is_array($data['productos']))
+            ? $data['productos']
+            : [];
 
-        $resultados = \DB::connection('mysql')->table('productos_busqueda')->select('*')->whereIn('codigo_nikko', $data['productos'])->get()->toArray();
-        $resultados = array_intersect_key($resultados, array_unique(array_column($resultados, 'codigo_nikko')));
-        $total_resultados = count($resultados);
+        // Compat: el externo antes devolvia un arreglo plano de claves. Ahora
+        // devuelve objetos {clave, vigencia}. Soportamos ambos por si el externo
+        // aun no se despliega.
+        $vigencias = [];   // clave => 'Y-m-d'|null
+        foreach ($items as $it) {
+            if (is_array($it)) {
+                $clave = $it['clave'] ?? null;
+                if ($clave === null) continue;
+                $vigencias[$clave] = $it['vigencia'] ?? null;
+            } else {
+                $vigencias[$it] = null;
+            }
+        }
+        $claves = array_values(array_unique(array_keys($vigencias)));
 
-        $categorias = [];
-        foreach ($resultados as $key => $val) {
-            if (!isset($categorias[$val->grupo]))
-                $categorias[$val->grupo] = [];
+        // 2) Catalogo desde SOMA (owari_soma / Postgres), NO desde el CMS viejo.
+        //    productos + productos_web (grupo/subgrupo/descripcion/caracteristicas)
+        //    + marcas (marca). Igual que el buscador del telemarketing.
+        $catalogo = collect();
+        if (!empty($claves)) {
+            $rows = \DB::connection('owari_soma')->table('productos as p')
+                ->leftJoin('productos_web as pw', function ($j) {
+                    $j->on('pw.id_producto', '=', 'p.id')->whereNull('pw.deleted_at');
+                })
+                ->leftJoin('marcas as m', function ($j) {
+                    $j->on('m.id', '=', 'p.id_marca')->whereNull('m.deleted_at');
+                })
+                ->whereIn('p.clave', $claves)
+                ->whereNull('p.deleted_at')
+                ->get([
+                    'p.id',
+                    'p.clave as codigo_nikko',
+                    'm.nombre as marca_comercial',
+                    'pw.grupo', 'pw.subgrupo',
+                    'pw.descripcion_1', 'pw.descripcion_2', 'pw.descripcion_3',
+                    'pw.caracteristicas_1', 'pw.caracteristicas_2', 'pw.caracteristicas_3',
+                ]);
 
-            if (!isset($categorias[$val->grupo][$val->subgrupo]))
-                $categorias[$val->grupo][$val->subgrupo] = true;
+            // Equivalencias (filas en SOMA) -> hasta 5 columnas equivalencia_N
+            // para compat con la vista.
+            $ids = $rows->pluck('id')->all();
+            $equivsPorProducto = collect();
+            if (!empty($ids)) {
+                $equivsPorProducto = \DB::connection('owari_soma')->table('productos_equivalencias')
+                    ->whereIn('id_producto', $ids)
+                    ->whereNull('deleted_at')
+                    ->orderBy('id')
+                    ->get(['id_producto', 'clave'])
+                    ->groupBy('id_producto');
+            }
+
+            // Dedup por codigo_nikko y armado del objeto que consume la vista.
+            $vistos = [];
+            foreach ($rows as $r) {
+                if (isset($vistos[$r->codigo_nikko])) continue;
+                $vistos[$r->codigo_nikko] = true;
+
+                $eqs = $equivsPorProducto->get($r->id, collect())->pluck('clave')->values();
+                for ($n = 1; $n <= 5; $n++) {
+                    $r->{'equivalencia_' . $n} = $eqs->get($n - 1, '');
+                }
+                $r->caracteristicas_4 = '';   // SOMA no tiene la 4; se deja vacia
+                $r->marca_comercial   = $r->marca_comercial ?? '';
+                $r->grupo             = $r->grupo    ?: 'SIN GRUPO';
+                $r->subgrupo          = $r->subgrupo ?: 'SIN SUBGRUPO';
+                $r->vigencia          = $vigencias[$r->codigo_nikko] ?? null;
+
+                $catalogo->push($r);
+            }
         }
 
-        return view('tienda_online.descuentos', compact('resultados', 'total_resultados', 'titulo', 'categorias'));
+        // 3) Categorias (grupo -> subgrupo) SIEMPRE desde el set completo, para
+        //    que la barra lateral muestre todo aunque haya filtro/paginacion.
+        $categorias = [];
+        foreach ($catalogo as $val) {
+            $categorias[$val->grupo][$val->subgrupo] = true;
+        }
+        ksort($categorias);
+
+        $total_resultados = $catalogo->count();
+
+        // 4) Aplicar filtro de grupo/subgrupo (si viene de la barra lateral).
+        $filtrados = $catalogo->filter(function ($p) use ($grupoFiltro, $subgrupoFiltro) {
+            if ($grupoFiltro !== '' && $p->grupo !== $grupoFiltro) return false;
+            if ($subgrupoFiltro !== '' && $p->subgrupo !== $subgrupoFiltro) return false;
+            return true;
+        })->values();
+
+        // 5) Paginar 50 por pagina, preservando los filtros en los links.
+        $perPage = 50;
+        $page    = LengthAwarePaginator::resolveCurrentPage();
+        $resultados = new LengthAwarePaginator(
+            $filtrados->forPage($page, $perPage)->values(),
+            $filtrados->count(),
+            $perPage,
+            $page,
+            ['path' => $request->url(), 'query' => $request->query()]
+        );
+
+        return view('tienda_online.descuentos', compact(
+            'resultados', 'total_resultados', 'titulo', 'categorias',
+            'grupoFiltro', 'subgrupoFiltro'
+        ));
     }
 
     public function vaciarCarrito()

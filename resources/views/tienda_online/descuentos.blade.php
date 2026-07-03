@@ -8,7 +8,11 @@
                 <div class="row">
                     <div class="col-12 col-md-6 text-left offset-md-3">
                         <h4>Nuestros productos en descuento</h4>
-                        <h4>{{$total_resultados}} producto(s)</h4>
+                        <h4>{{ $total_resultados }} producto(s)
+                            @if($grupoFiltro !== '' || $subgrupoFiltro !== '')
+                                <small class="text-muted">— filtrando: {{ $grupoFiltro }}{{ $subgrupoFiltro !== '' ? ' / '.$subgrupoFiltro : '' }}</small>
+                            @endif
+                        </h4>
                     </div>
                 </div>
             </div>
@@ -24,52 +28,52 @@
                 <div class="col-lg-3 col-md-3 d-none d-md-block">
                     <div class="shop-category" style="position: sticky; top:20px;">
                         <div class="category-title">
-                            <a href="#">Categorias</a>
+                            <a href="{{ route('tienda_online.descuentos') }}">Categorias</a>
                         </div>
+                        @if($grupoFiltro !== '' || $subgrupoFiltro !== '')
+                            <a href="{{ route('tienda_online.descuentos') }}" class="d-block mb-2"><small>&laquo; Ver todos</small></a>
+                        @endif
                         <div class="shop-category-menu">
-
 
                             <div class="accordion accordion-flush" id="accordionFlushExample">
 
-                                <?php 
-                                        $i=0;  
-                                    ?>
+                                <?php $i=0; ?>
                                 @foreach($categorias as $key => $value)
                                     <div class="accordion-item">
                                         <h2 class="accordion-header" id="flush-heading{{$i}}">
-                                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#flush-collapse{{$i}}" aria-expanded="false" aria-controls="flush-collapse{{$i}}">
-                                                {{$key}}
+                                            <button class="accordion-button {{ $grupoFiltro === $key ? '' : 'collapsed' }}" type="button" data-bs-toggle="collapse" data-bs-target="#flush-collapse{{$i}}" aria-expanded="{{ $grupoFiltro === $key ? 'true' : 'false' }}" aria-controls="flush-collapse{{$i}}">
+                                                {{ $key }}
                                             </button>
                                         </h2>
-                                        <div id="flush-collapse{{$i}}" class="accordion-collapse collapse" aria-labelledby="flush-heading{{$i}}" data-bs-parent="#accordionFlushExample">
+                                        <div id="flush-collapse{{$i}}" class="accordion-collapse collapse {{ $grupoFiltro === $key ? 'show' : '' }}" aria-labelledby="flush-heading{{$i}}" data-bs-parent="#accordionFlushExample">
                                             <div class="accordion-body p-0">
                                                 <ul class="w-100 list-group">
                                                     @foreach($value as $indice => $valor)
-                                                        <li class="list-group-item w-100"><small><a href="#ir_a_{{$indice}}">{{$indice}}</a></small></li>
+                                                        <li class="list-group-item w-100 {{ ($grupoFiltro === $key && $subgrupoFiltro === $indice) ? 'active' : '' }}">
+                                                            <small>
+                                                                <a href="{{ route('tienda_online.descuentos', ['grupo' => $key, 'subgrupo' => $indice]) }}"
+                                                                   class="{{ ($grupoFiltro === $key && $subgrupoFiltro === $indice) ? 'text-white' : '' }}">
+                                                                    {{ $indice }}
+                                                                </a>
+                                                            </small>
+                                                        </li>
                                                     @endforeach
                                                 </ul>
                                             </div>
                                         </div>
                                     </div>
-                                    <?php 
-                                        $i++;
-                                    ?>
+                                    <?php $i++; ?>
                                 @endforeach
                             </div>
 
                         </div>
                     </div>
                 </div>
-               
+
 
                 <div class="col-lg-9 col-md-9">
                     <div class="row">
-                        @foreach($categorias as $llave => $value)
-                        @foreach($value as $indice => $valor)
-                            <h5 class="mt-3" id="ir_a_{{ $indice}}">{{ $indice }}</h5>
-                            <hr>
-                        @foreach($resultados as $key => $resultado)
-                        @if($resultado->subgrupo == $indice)
+                        @forelse($resultados as $resultado)
                             <div class="col-md-4 col-6">
                                 <div class="shop-item-box">
                                     <div class="row align-items-center">
@@ -79,20 +83,17 @@
                                                 <?php
                                                         if(str_contains($resultado->codigo_nikko, '/'))
                                                             $codigo_nikko = str_replace("/", "_", $resultado->codigo_nikko);
-                                                        else 
+                                                        else
                                                             $codigo_nikko = $resultado->codigo_nikko;
 
                                                         $directory = '/var/www/vhosts/owari.com.mx/laravel/cms/storage/app/public/productos/'.$codigo_nikko;
-                                                     
-
 
                                                         if(is_dir($directory))
                                                             $files = \Storage::disk('cms')->allFiles('productos/'.$codigo_nikko."/");
                                                         else
                                                             $files = [];
-                                                    
+
                                                         arsort($files);
-                                                        
                                                     ?>
                                                     @if(count($files) > 0)
                                                         <img src="{{ "https://owari.com.mx/storage/productos/".$codigo_nikko."/".basename($files[array_key_first($files)],PHP_EOL) }}" alt="Product Image">
@@ -101,8 +102,6 @@
                                                     @endif
                                                 </a>
                                             </div>
-                                           
-                                            
                                         </div>
                                         <div class="col-lg-6 col-sm-6 col-12">
                                             <div class="shop-content">
@@ -118,25 +117,30 @@
 
                                                 <ul class="shop-list">
                                                     <li>{{$resultado->descripcion_1}} @if($resultado->descripcion_2 != "") {{$resultado->descripcion_2}} @endif @if($resultado->descripcion_3 != "") {{$resultado->descripcion_3}} @endif</li>
-                                                    @if($resultado->caracteristicas_1 != "") 
+                                                    @if($resultado->caracteristicas_1 != "")
                                                         <li>{{$resultado->caracteristicas_1}}</li>
                                                     @endif
-                                                    @if($resultado->caracteristicas_2 != "") 
+                                                    @if($resultado->caracteristicas_2 != "")
                                                         <li>{{$resultado->caracteristicas_2}}</li>
                                                     @endif
-                                                    @if($resultado->caracteristicas_3 != "") 
+                                                    @if($resultado->caracteristicas_3 != "")
                                                         <li>{{$resultado->caracteristicas_3}}</li>
                                                     @endif
-                                                    @if($resultado->caracteristicas_4 != "") 
-                                                        <li>{{$resultado->caracteristicas_4}}</li>
-                                                    @endif
                                                     <li>{{$resultado->grupo}} - {{$resultado->subgrupo}}</li>
-                                                    <li>Disponible: <b class="existencia_real_{{ $key }}"></b></li>
-                                                    <li>Precio: <b class="rayado precio_standar_{{ $key }}"></b>&nbsp;<b class="precio_real_{{ $key }}"></b></li>
-                                                    <li class="notas_precio_{{ $key }}">
-                                                        
+                                                    <li>Disponible: <b class="existencia_real_{{ $loop->index }}"></b></li>
+                                                    <li>Precio: <b class="rayado precio_standar_{{ $loop->index }}"></b>&nbsp;<b class="precio_real_{{ $loop->index }}"></b></li>
+                                                    <li class="notas_precio_{{ $loop->index }}"></li>
+                                                    <li>
+                                                        @if(!is_null($resultado->vigencia))
+                                                            <span class="badge" style="background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7;">
+                                                                Promo vigente hasta {{ \Carbon::parse($resultado->vigencia)->format('d/m/Y') }}
+                                                            </span>
+                                                        @else
+                                                            <span class="badge" style="background:#eef2ff;color:#3949ab;border:1px solid #c5cae9;">
+                                                                Promo sin fecha de vencimiento
+                                                            </span>
+                                                        @endif
                                                     </li>
-
                                                 </ul>
                                                 <script>
                                                         setTimeout(() => {
@@ -144,59 +148,43 @@
                                                                     { cliente: '{{ \Auth::user()->clave_cliente }}', clave: '{{ $resultado->codigo_nikko }}', tipo: 'normal' },
                                                                     function (data, textStatus, jqXHR) {
 
-
                                                                             var obj = data;
                                                                             if(data.code == 0 ){
-                                                                                alert(data.mensaje);
                                                                                 return false;
                                                                             }
 
-
                                                                             producto_partida = obj;
 
-                                                                            //analisis para saber que politiva le toca
                                                                             var notas = "";
                                                                             var precio = obj.precio_publico;
                                                                             var precio_iva = obj.precio_iva;
                                                                             var cantidad = $("#cantidad").val() != "" ? $("#cantidad").val() : 1;
-                                                                            //console.log("TAMANO:" + obj.descuentos.length);
-                                                                            var notas = "";
 
                                                                             var precio_viejo = obj.descuentos[0].precio_iva;
                                                                             var precio_diferente = 0;
                                                                             var porcentaje = 1;
                                                                             @if(isset(\Auth::user()->clienteData))
                                                                                 @if(\Auth::user()->clienteData->tiendita)
-                                                                                          
                                                                                     porcentaje = 1 + ({{ \Auth::user()->clienteData->porcentaje }}/100);
-                                                                                    
                                                                                 @endif
                                                                             @endif
 
                                                                             if (obj.descuentos.length > 1) {
                                                                                 for (i = obj.descuentos.length - 1; i >= 1; i--) {
-                                                                                    //console.log("comenzamos = " + i);
                                                                                     if (obj.descuentos[i].tipo == "S") {
-                                                                                        //console.log(obj.descuentos[i].tipo + " " + i);
                                                                                         if (parseInt(obj.descuentos[i].unidades_minimas) <= parseInt(0)) {
-                                                                                            //console.log("cero unidades");
                                                                                             precio = obj.descuentos[i].precio_lista;
                                                                                             precio_iva = obj.descuentos[i].precio_iva;
                                                                                             break;
                                                                                         } else {
                                                                                             if (parseInt(obj.descuentos[i].unidades_minimas) <= parseInt(cantidad)) {
-                                                                                                //console.log("hay unidades y cubrimos");
                                                                                                 precio = obj.descuentos[i].precio_lista;
                                                                                                 precio_iva = obj.descuentos[i].precio_iva;
                                                                                                 break;
                                                                                             } else {
-
-                                                                                                //console.log(parseFloat(obj.descuentos[i].unidades_minimas));
                                                                                                 if(parseFloat(obj.descuentos[i].unidades_minimas) == 1){
-                                                                                                    
                                                                                                     precio_diferente = obj.descuentos[i].precio_lista;
                                                                                                 }
-
                                                                                                 notas +=
                                                                                                     "Si compras <b>" +
                                                                                                     parseFloat(obj.descuentos[i].unidades_minimas).toFixed(0) +
@@ -211,7 +199,6 @@
 
                                                                             if(parseFloat(precio_diferente) != 0){
                                                                                 precio = precio_diferente;
-
                                                                             }
                                                                             if(precio_viejo < precio){
                                                                                         $.each(obj.descuentos, function(i, val) {
@@ -221,27 +208,25 @@
                                                                             }
 
                                                                             if(precio_viejo > precio)
-                                                                                $('.precio_standar_{{ $key }}').html("$ "+parseFloat(precio_viejo * porcentaje).toFixed(2));
-                                                                            
-                                                                            $('.precio_real_{{ $key }}').html("$ "+parseFloat(precio * porcentaje).toFixed(2));
-                                                                            $('.existencia_real_{{ $key }}').html(parseInt(obj.existencia));
-                                                                            $('.notas_precio_{{ $key }}').html(notas);
+                                                                                $('.precio_standar_{{ $loop->index }}').html("$ "+parseFloat(precio_viejo * porcentaje).toFixed(2));
+
+                                                                            $('.precio_real_{{ $loop->index }}').html("$ "+parseFloat(precio * porcentaje).toFixed(2));
+                                                                            $('.existencia_real_{{ $loop->index }}').html(parseInt(obj.existencia));
+                                                                            $('.notas_precio_{{ $loop->index }}').html(notas);
                                                                     }
                                                                 );
                                                         }, 500);
                                                     </script>
                                             </div>
                                         </div>
-                                    
+
                                         <div class="col-lg-12 col-sm-12 col-12">
                                             <div class="shop-content">
                                                 <ul class="shop-btn-list">
                                                     <li>
-                                                        <!--<a href="wishlist.html" class="mb-1 btn-primary">Agregar a mis favoritos</a>-->
                                                         <a href="{{route('tienda_online.detalles_producto',str_replace('/','_',$resultado->codigo_nikko))}}">Ver detalles&nbsp;<i class="bi bi-eye-fill"></i></a>
                                                     </li>
                                                     <li>
-                                                        <!--<a href="wishlist.html" class="mb-1 btn-primary">Agregar a mis favoritos</a>-->
                                                         <?php
                                                             $favorito = App\Models\Favorito::where('numero_parte',$resultado->codigo_nikko)->first();
                                                         ?>
@@ -251,18 +236,26 @@
                                                         <button data-numero="{{ $resultado->codigo_nikko }}" data-funcion="agregar" class="boton-fav favorito">Añadir a favoritos&nbsp;<i class="bi bi-bookmark-plus-fill"></i></button>
                                                         @endif
                                                     </li>
-                                                          
                                                 </ul>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
                             </div>
-                            @endif
-                        @endforeach
-                        @endforeach
-                        @endforeach
+                        @empty
+                            <div class="col-12 text-center py-5">
+                                <h5 class="text-muted">No hay productos en descuento
+                                    @if($grupoFiltro !== '' || $subgrupoFiltro !== '') para este filtro @endif.
+                                </h5>
+                            </div>
+                        @endforelse
                     </div>
+
+                    {{-- Paginacion 50 por pagina, conservando el filtro de grupo/subgrupo --}}
+                    <div class="d-flex justify-content-center mt-4">
+                        {{ $resultados->appends(request()->query())->links('pagination::bootstrap-5') }}
+                    </div>
+
                     <style>
                         .rayado{
                             text-decoration:line-through;
@@ -283,7 +276,7 @@
                         }
 
                         @media only screen and (max-width: 768px) {
-                            .shop-item-box .shop-content{ 
+                            .shop-item-box .shop-content{
                                 text-align:left;
                             }
                             .shop-item-box .shop-content .shop-list li {
@@ -312,7 +305,6 @@
                     </style>
 
 
-                    
                 </div>
             </div>
         </div>
@@ -339,26 +331,21 @@
         e.preventDefault();
         var $numero_parte = $(this).data('numero');
         var $funcion = $(this).data('funcion');
-        console.log($funcion);
         var elemento = $(this);
 
         $.post("{{ route('tienda_online.actualizar_favoritos') }}", { 'funcion' : $funcion, 'numero_parte': $numero_parte ,'_token' : '{{  csrf_token() }}' },
             function (data, textStatus, jqXHR) {
                 if(data.code){
-
                   if($funcion == "agregar"){
                     elemento.data('funcion','quitar');
                     elemento.html('Quitar de favoritos <i class="bi bi-x-circle-fill"></i>');
                     $("#alerta_carrito p").text('Este producto fue agregado a tus favoritos correctamente.');
-
                   }
                   else{
                     elemento.data('funcion','agregar');
                     elemento.html('Añadir a favoritos <i class="bi-bookmark-plus-fill"></i>');
                     $("#alerta_carrito p").text('Este producto fue eliminado de tus favoritos correctamente.');
-
                   }
-
                   $("#alerta_carrito").addClass('show');
                 }
             },
