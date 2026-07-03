@@ -86,7 +86,7 @@ class GenerarPromocionesExcel extends Command
 
         // 3) Armar filas (encabezado + una por producto), ordenadas por subgrupo/clave.
         $filas = [[
-            'CLAVE', 'MARCA', 'DESCRIPCION', 'SUBGRUPO', 'PRECIO NORMAL', 'PRECIO PROMOCION', 'MINIMO DE COMPRA', 'VIGENCIA',
+            'CLAVE', 'MARCA', 'DESCRIPCION', 'SUBGRUPO', 'PRECIO PROMOCION', 'MINIMO DE COMPRA', 'VIGENCIA',
         ]];
 
         $rows = [];
@@ -111,7 +111,6 @@ class GenerarPromocionesExcel extends Command
                 'marca'         => $cat->marca ?? '',
                 'descripcion'   => $desc,
                 'subgrupo'      => $cat->subgrupo ?? '',
-                'precio_normal' => round((float) ($it['precio_normal'] ?? 0), 2),
                 'precio_promo'  => round((float) ($it['precio_promo'] ?? 0), 2),
                 // VOL_MIN de la politica; si no trae minimo, es 1 unidad.
                 'minimo'        => max(1, (int) ($it['minimo'] ?? 0)),
