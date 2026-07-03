@@ -34,6 +34,12 @@ class Kernel extends ConsoleKernel
         $schedule->command('clientes:recordatorio-sms')
                  ->dailyAt('10:00')
                  ->withoutOverlapping();
+
+        // Regenera el Excel de promociones globales de la tienda a las 02:00,
+        // que el cliente descarga desde /tienda_online/promociones.xlsx.
+        $schedule->command('promociones:generar-excel')
+                 ->dailyAt('02:00')
+                 ->withoutOverlapping();
     }
 
     /**

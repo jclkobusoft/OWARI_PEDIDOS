@@ -122,6 +122,8 @@ Route::middleware(['auth', 'verified', 'cliente.suspendido'])->prefix('tienda_on
     Route::get('pedidos/detalle_especial', [App\Http\Controllers\TiendaOnlineController::class, 'detallePedidoEspecial'])->name('tienda_online.detalle_pedido_especial');
     Route::post('carrito/excel', [App\Http\Controllers\TiendaOnlineController::class, 'excelCarrito'])->name('tienda_online.excel_carrito');
     Route::get('descuentos', [App\Http\Controllers\TiendaOnlineController::class, 'descuentos'])->name('tienda_online.descuentos');
+    // Excel de promociones globales, generado por el cron diario (2am).
+    Route::get('promociones.xlsx', [App\Http\Controllers\TiendaOnlineController::class, 'promocionesExcel'])->name('tienda_online.promociones_excel');
     Route::get('liquidacion', [App\Http\Controllers\TiendaOnlineController::class, 'liquidacion'])->name('tienda_online.liquidacion');
     Route::get('vaciar_carrito', [App\Http\Controllers\TiendaOnlineController::class, 'vaciarCarrito'])->name('tienda_online.vaciar_carrito');
     Route::get('editar_cliente', [App\Http\Controllers\TiendaOnlineController::class, 'editarCliente'])->name('tienda_online.editar_cliente');

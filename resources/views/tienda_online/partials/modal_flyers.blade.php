@@ -5,8 +5,14 @@
 <style>
     #flyers-overlay { position:fixed; inset:0; z-index:99999; display:none; align-items:center; justify-content:center;
         background:rgba(0,0,0,0.82); backdrop-filter:blur(3px); -webkit-backdrop-filter:blur(3px); padding:18px; }
+    #flyers-overlay .flyers-wrap { position:relative; display:flex; flex-direction:column; align-items:center; gap:16px; max-height:96vh; }
+    #flyers-overlay .flyers-promo-title { display:block; text-align:center; text-decoration:none; color:#fff;
+        font-weight:800; font-size:clamp(20px,4vw,38px); line-height:1.1; letter-spacing:.5px;
+        text-shadow:0 2px 10px rgba(0,0,0,0.55); animation:flyersBlink 1s steps(1,end) infinite; }
+    #flyers-overlay .flyers-promo-title:hover { text-decoration:underline; }
+    @keyframes flyersBlink { 50% { opacity:0.25; } }
     #flyers-overlay .flyers-box { position:relative; display:flex; flex-direction:row; flex-wrap:wrap;
-        gap:14px; justify-content:center; align-items:center; max-width:800px; max-height:92vh; }
+        gap:14px; justify-content:center; align-items:center; max-width:800px; max-height:82vh; }
     #flyers-overlay .flyer-cell { flex:0 0 auto; width:min(370px,40vh); height:min(370px,40vh);
         border-radius:12px; overflow:hidden; box-shadow:0 8px 28px rgba(0,0,0,0.45); background:#fff; display:block; }
     #flyers-overlay .flyer-cell img { width:100%; height:100%; object-fit:cover; display:block; }
@@ -21,8 +27,13 @@
 </style>
 
 <div id="flyers-overlay" role="dialog" aria-modal="true" aria-label="Promociones">
-    <div class="flyers-box">
-        <button id="flyers-close" type="button" aria-label="Cerrar">&times;</button>
+    <div class="flyers-wrap">
+        <a href="{{ route('tienda_online.promociones_excel') }}" class="flyers-promo-title" target="_blank" rel="noopener">
+            Descarga todas nuestras promociones
+        </a>
+        <div class="flyers-box">
+            <button id="flyers-close" type="button" aria-label="Cerrar">&times;</button>
+        </div>
     </div>
 </div>
 

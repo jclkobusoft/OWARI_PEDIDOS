@@ -1697,6 +1697,22 @@ class TiendaOnlineController extends Controller
         return false;
     }
 
+    /**
+     * Entrega el Excel de promociones globales generado por el cron diario
+     * (promociones:generar-excel). Sirve el archivo desde storage/app.
+     * URL: /tienda_online/promociones.xlsx
+     */
+    public function promocionesExcel()
+    {
+        $ruta = storage_path('app/promociones.xlsx');
+        if (!file_exists($ruta)) {
+            abort(404, 'El listado de promociones aun no esta disponible.');
+        }
+        return response()->download($ruta, 'promociones-owari.xlsx', [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ]);
+    }
+
     public function editarCliente(Request $r)
     {
         $titulo = "Editar cliente";
