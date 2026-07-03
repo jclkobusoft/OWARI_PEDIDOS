@@ -1647,7 +1647,7 @@ class TiendaOnlineController extends Controller
 
         // 5) Paginacion con el MISMO estilo que /tienda_online/productos:
         //    botones con ellipsis + base $peticion (que conserva el filtro).
-        $mostrar_productos = 50;
+        $mostrar_productos = 30;
         $p = (int) $request->query('p', 1);
         if ($p < 1) $p = 1;
 
