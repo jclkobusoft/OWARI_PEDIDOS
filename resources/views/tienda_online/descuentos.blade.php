@@ -28,7 +28,7 @@
                 <div class="col-lg-3 col-md-3 d-none d-md-block">
                     <div class="shop-category" style="position: sticky; top:20px;">
                         <div class="category-title">
-                            <a href="{{ route('tienda_online.descuentos') }}">Subgrupos</a>
+                            <a href="{{ route('tienda_online.descuentos') }}">Filtrar descuentos por:</a>
                         </div>
                         <div class="shop-category-menu">
                             <ul class="w-100 list-group" style="max-height:75vh; overflow-y:auto;">
