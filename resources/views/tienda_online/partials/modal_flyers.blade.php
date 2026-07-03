@@ -1,94 +1,82 @@
 @if(!empty($flyers))
-<div id="flyers-overlay" role="dialog" aria-modal="true" aria-label="Promociones"
-     style="display:none; position:fixed; inset:0; z-index:99999; background:rgba(0,0,0,0.78); backdrop-filter:blur(2px); -webkit-backdrop-filter:blur(2px); align-items:center; justify-content:center; padding:20px;">
-    <div style="position:relative; width:auto; max-width:92vw; text-align:center;">
+{{-- Modal de flyers: por visita muestra 1 slide (escritorio 2x2 = 4 flyers, movil apilados = 2).
+     Rota sin repetir usando una cookie con los IDs ya mostrados; al agotar los ~120 reinicia.
+     Se muestra una sola vez por visita (sesion del navegador). Orden fijo (el backend ya ordena por 'orden'). --}}
+<style>
+    #flyers-overlay { position:fixed; inset:0; z-index:99999; display:none; align-items:center; justify-content:center;
+        background:rgba(0,0,0,0.82); backdrop-filter:blur(3px); -webkit-backdrop-filter:blur(3px); padding:18px; }
+    #flyers-overlay .flyers-box { position:relative; display:flex; flex-direction:row; flex-wrap:wrap;
+        gap:14px; justify-content:center; align-items:center; max-width:800px; max-height:92vh; }
+    #flyers-overlay .flyer-cell { flex:0 0 auto; width:min(370px,40vh); height:min(370px,40vh);
+        border-radius:12px; overflow:hidden; box-shadow:0 8px 28px rgba(0,0,0,0.45); background:#fff; display:block; }
+    #flyers-overlay .flyer-cell img { width:100%; height:100%; object-fit:cover; display:block; }
+    #flyers-close { position:absolute; top:-14px; right:-14px; z-index:3; width:40px; height:40px; border:none;
+        border-radius:50%; background:#fff; color:#222; font-size:24px; line-height:38px; cursor:pointer;
+        box-shadow:0 2px 10px rgba(0,0,0,0.35); }
+    @media (max-width:767px){
+        #flyers-overlay .flyers-box { flex-direction:column; flex-wrap:nowrap; max-width:100%; }
+        #flyers-overlay .flyer-cell { width:min(86vw,43vh); height:min(86vw,43vh); }
+        #flyers-close { top:-6px; right:-6px; }
+    }
+</style>
 
-        <button id="flyers-close" type="button" aria-label="Cerrar"
-                style="position:absolute; top:-16px; right:-16px; z-index:2; width:40px; height:40px; border:none; border-radius:50%; background:#fff; color:#222; font-size:24px; line-height:38px; cursor:pointer; box-shadow:0 2px 10px rgba(0,0,0,0.35);">&times;</button>
-
-        <div id="flyers-carousel" style="position:relative; display:inline-block;">
-            @foreach($flyers as $i => $f)
-                <div class="flyer-slide" data-index="{{ $i }}" style="display:{{ $i === 0 ? 'block' : 'none' }};">
-                    @if(!empty($f['enlace']))
-                        <a href="{{ $f['enlace'] }}" target="_blank" rel="noopener" style="display:inline-block;">
-                            <img src="{{ $f['url'] }}" alt="{{ $f['titulo'] ?? 'Promocion' }}"
-                                 style="display:block; max-width:92vw; max-height:84vh; width:auto; height:auto; border-radius:10px; box-shadow:0 10px 40px rgba(0,0,0,0.5); cursor:pointer;" />
-                        </a>
-                    @else
-                        <img src="{{ $f['url'] }}" alt="{{ $f['titulo'] ?? 'Promocion' }}"
-                             style="display:block; max-width:92vw; max-height:84vh; width:auto; height:auto; border-radius:10px; box-shadow:0 10px 40px rgba(0,0,0,0.5);" />
-                    @endif
-                </div>
-            @endforeach
-
-            @if(count($flyers) > 1)
-                <button id="flyers-prev" type="button" aria-label="Anterior"
-                        style="position:absolute; top:50%; left:10px; transform:translateY(-50%); width:44px; height:44px; border:none; border-radius:50%; background:rgba(255,255,255,0.9); color:#222; font-size:26px; line-height:40px; cursor:pointer; box-shadow:0 2px 8px rgba(0,0,0,0.3);">&lsaquo;</button>
-                <button id="flyers-next" type="button" aria-label="Siguiente"
-                        style="position:absolute; top:50%; right:10px; transform:translateY(-50%); width:44px; height:44px; border:none; border-radius:50%; background:rgba(255,255,255,0.9); color:#222; font-size:26px; line-height:40px; cursor:pointer; box-shadow:0 2px 8px rgba(0,0,0,0.3);">&rsaquo;</button>
-            @endif
-        </div>
-
-        @if(count($flyers) > 1)
-            <div id="flyers-dots" style="margin-top:14px; display:flex; gap:8px; justify-content:center;">
-                @foreach($flyers as $i => $f)
-                    <span class="flyer-dot" data-index="{{ $i }}"
-                          style="width:10px; height:10px; border-radius:50%; background:{{ $i === 0 ? '#fff' : 'rgba(255,255,255,0.45)' }}; cursor:pointer; display:inline-block;"></span>
-                @endforeach
-            </div>
-        @endif
+<div id="flyers-overlay" role="dialog" aria-modal="true" aria-label="Promociones">
+    <div class="flyers-box">
+        <button id="flyers-close" type="button" aria-label="Cerrar">&times;</button>
     </div>
 </div>
 
 <script>
 (function () {
-    function getCookie(name) {
-        var m = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
-        return m ? m.pop() : '';
-    }
-    // Si ya cerro los flyers, no se muestran hasta que expire la cookie (24 h).
-    // --- PRUEBAS: desactivado para que el modal aparezca SIEMPRE al entrar. ---
-    // Para reactivar el ciclo de 24 h, descomenta la siguiente linea:
-    // if (getCookie('flyers_vistos') === '1') return;
+    var FLYERS = @json($flyers);
+    if (!Array.isArray(FLYERS) || FLYERS.length === 0) return;
+
+    // Mostrar una sola vez por visita (sesion del navegador). Recargas no avanzan el lote.
+    try { if (sessionStorage.getItem('flyers_sesion') === '1') return; } catch (e) {}
 
     var overlay = document.getElementById('flyers-overlay');
-    if (!overlay) return;
+    var box = overlay ? overlay.querySelector('.flyers-box') : null;
+    if (!overlay || !box) return;
 
-    var slides = [].slice.call(overlay.querySelectorAll('.flyer-slide'));
-    var dots   = [].slice.call(overlay.querySelectorAll('.flyer-dot'));
-    var idx = 0;
+    // Cuantos por dispositivo: escritorio 4 (2x2), movil 2 (apilados)
+    var esMovil = window.matchMedia('(max-width: 767px)').matches;
+    var N = esMovil ? 2 : 4;
 
-    function show(i) {
-        idx = (i + slides.length) % slides.length;
-        slides.forEach(function (s, j) { s.style.display = (j === idx ? 'block' : 'none'); });
-        dots.forEach(function (d, j) { d.style.background = (j === idx ? '#fff' : 'rgba(255,255,255,0.45)'); });
-    }
+    function getCookie(name) { var m = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)'); return m ? m.pop() : ''; }
+    function setCookie(name, val, dias) { var d = new Date(); d.setTime(d.getTime() + dias * 86400000); document.cookie = name + '=' + val + '; expires=' + d.toUTCString() + '; path=/'; }
 
-    function cerrar() {
-        overlay.style.display = 'none';
-        var d = new Date();
-        d.setTime(d.getTime() + 24 * 60 * 60 * 1000); // 24 horas
-        document.cookie = 'flyers_vistos=1; expires=' + d.toUTCString() + '; path=/';
-        document.removeEventListener('keydown', onKey);
-    }
+    // IDs ya mostrados (rotacion sin repetir)
+    var vistos = (getCookie('flyers_vistos') || '').split(',').filter(Boolean);
+    var noVistos = FLYERS.filter(function (f) { return vistos.indexOf(String(f.id)) === -1; });
 
-    function onKey(e) {
-        if (e.key === 'Escape') cerrar();
-        else if (e.key === 'ArrowLeft' && slides.length > 1) show(idx - 1);
-        else if (e.key === 'ArrowRight' && slides.length > 1) show(idx + 1);
-    }
+    // Si ya vio todos, reinicia el ciclo
+    if (noVistos.length === 0) { vistos = []; noVistos = FLYERS.slice(); }
 
+    var lote = noVistos.slice(0, N); // orden fijo (el backend ya viene ordenado)
+    if (lote.length === 0) return;
+
+    // Registrar los mostrados (cookie 1 año) + marcar la visita
+    lote.forEach(function (f) { vistos.push(String(f.id)); });
+    setCookie('flyers_vistos', vistos.join(','), 365);
+    try { sessionStorage.setItem('flyers_sesion', '1'); } catch (e) {}
+
+    // Pintar las celdas del lote (solo estas imagenes se cargan)
+    lote.forEach(function (f) {
+        var cell = document.createElement(f.enlace ? 'a' : 'div');
+        cell.className = 'flyer-cell';
+        if (f.enlace) { cell.href = f.enlace; cell.target = '_blank'; cell.rel = 'noopener'; cell.style.cursor = 'pointer'; }
+        var img = document.createElement('img');
+        img.src = f.url;
+        img.alt = f.titulo || 'Promocion';
+        cell.appendChild(img);
+        box.appendChild(cell);
+    });
+
+    function cerrar() { overlay.style.display = 'none'; document.removeEventListener('keydown', onKey); }
+    function onKey(e) { if (e.key === 'Escape') cerrar(); }
     document.getElementById('flyers-close').addEventListener('click', cerrar);
     overlay.addEventListener('click', function (e) { if (e.target === overlay) cerrar(); });
     document.addEventListener('keydown', onKey);
-
-    var prev = document.getElementById('flyers-prev');
-    var next = document.getElementById('flyers-next');
-    if (prev) prev.addEventListener('click', function () { show(idx - 1); });
-    if (next) next.addEventListener('click', function () { show(idx + 1); });
-    dots.forEach(function (d) {
-        d.addEventListener('click', function () { show(parseInt(d.getAttribute('data-index'), 10)); });
-    });
 
     overlay.style.display = 'flex';
 })();
