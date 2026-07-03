@@ -133,7 +133,7 @@
                                                     <li>
                                                         @if(!is_null($resultado->vigencia))
                                                             <span class="badge" style="background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7;">
-                                                                Promo vigente hasta {{ \Carbon::parse($resultado->vigencia)->format('d/m/Y') }}
+                                                                Hasta el {{ \Carbon::parse($resultado->vigencia)->format('d/m/Y') }}
                                                             </span>
                                                         @else
                                                             <span class="badge" style="background:#eef2ff;color:#3949ab;border:1px solid #c5cae9;">
@@ -251,9 +251,29 @@
                         @endforelse
                     </div>
 
-                    {{-- Paginacion 50 por pagina, conservando el filtro de grupo/subgrupo --}}
-                    <div class="d-flex justify-content-center mt-4">
-                        {{ $resultados->appends(request()->query())->links('pagination::bootstrap-5') }}
+                    {{-- Paginacion con el mismo estilo que /tienda_online/productos --}}
+                    <div class="col-lg-12 col-md-12">
+                        <div class="pagination-area">
+                            @if($pagina > 1)
+                                <a href="{{ \Request::url().$peticion.($pagina-1) }}" class="prev page-numbers">
+                                    <i class='bx bxs-chevron-left'></i>
+                                </a>
+                            @endif
+                            @foreach($botones as $value)
+                                @if($pagina == $value)
+                                    <span class="page-numbers current" aria-current="page">{{ $value }}</span>
+                                @elseif("..." == $value)
+                                    <span class="page-numbers">{{ $value }}</span>
+                                @else
+                                    <a href="{{ \Request::url().$peticion.$value }}" class="page-numbers">{{ $value }}</a>
+                                @endif
+                            @endforeach
+                            @if($pagina < $total_paginas)
+                                <a href="{{ \Request::url().$peticion.($pagina+1) }}" class="next page-numbers">
+                                    <i class='bx bxs-chevron-right'></i>
+                                </a>
+                            @endif
+                        </div>
                     </div>
 
                     <style>

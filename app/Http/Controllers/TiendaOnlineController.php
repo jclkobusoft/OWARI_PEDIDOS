@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use Illuminate\Pagination\LengthAwarePaginator;
 use App\Imports\CarritoExcelImport;
 
 use App\Models\DatosGenerales;
@@ -1632,20 +1631,46 @@ class TiendaOnlineController extends Controller
             return true;
         })->values();
 
-        // 5) Paginar 50 por pagina, preservando los filtros en los links.
-        $perPage = 50;
-        $page    = LengthAwarePaginator::resolveCurrentPage();
-        $resultados = new LengthAwarePaginator(
-            $filtrados->forPage($page, $perPage)->values(),
-            $filtrados->count(),
-            $perPage,
-            $page,
-            ['path' => $request->url(), 'query' => $request->query()]
-        );
+        // 5) Paginacion con el MISMO estilo que /tienda_online/productos:
+        //    botones con ellipsis + base $peticion (que conserva el filtro).
+        $mostrar_productos = 50;
+        $p = (int) $request->query('p', 1);
+        if ($p < 1) $p = 1;
+
+        $total_filtrados = $filtrados->count();
+        $total_paginas   = (int) max(1, ceil($total_filtrados / $mostrar_productos));
+        if ($p > $total_paginas) $p = $total_paginas;
+
+        $offset     = ($p - 1) * $mostrar_productos;
+        $resultados = $filtrados->slice($offset, $mostrar_productos)->values();
+
+        // Base del query string para los links, terminada en "p=" (igual que en
+        // productos: <url>?<filtros>&p=<n>). Preserva grupo/subgrupo.
+        $filtrosQuery = [];
+        if ($grupoFiltro !== '')    $filtrosQuery['grupo'] = $grupoFiltro;
+        if ($subgrupoFiltro !== '') $filtrosQuery['subgrupo'] = $subgrupoFiltro;
+        $peticion = '?' . http_build_query($filtrosQuery);
+        $peticion .= ($peticion === '?' ? '' : '&') . 'p=';
+
+        // Botones (misma logica de ellipsis que productos).
+        $botones = [];
+        if ($total_paginas > 10) {
+            if ($p <= 7) {
+                $botones = [1, 2, 3, 4, 5, 6, 7, '...', $total_paginas - 2, $total_paginas - 1, $total_paginas];
+            } elseif ($total_paginas - 2 <= $p) {
+                $botones = [1, 2, 3, '...', $total_paginas - 6, $total_paginas - 5, $total_paginas - 4, $total_paginas - 3, $total_paginas - 2, $total_paginas - 1, $total_paginas];
+            } else {
+                $botones = [1, 2, 3, '...', $p - 1, $p, $p + 1, '...', $total_paginas - 2, $total_paginas - 1, $total_paginas];
+            }
+        } else {
+            for ($i = 1; $i <= $total_paginas; $i++) $botones[] = $i;
+        }
+
+        $pagina = $p;
 
         return view('tienda_online.descuentos', compact(
             'resultados', 'total_resultados', 'titulo', 'categorias',
-            'grupoFiltro', 'subgrupoFiltro'
+            'grupoFiltro', 'subgrupoFiltro', 'botones', 'pagina', 'peticion', 'total_paginas'
         ));
     }
 
