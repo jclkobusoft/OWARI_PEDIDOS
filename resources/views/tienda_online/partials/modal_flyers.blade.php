@@ -1,7 +1,7 @@
 @if(!empty($flyers))
 {{-- Modal de flyers: por visita muestra 1 slide (escritorio 2x2 = 4 flyers, movil apilados = 2).
      Rota sin repetir usando una cookie con los IDs ya mostrados; al agotar los ~120 reinicia.
-     Se muestra una sola vez por visita (sesion del navegador). Orden fijo (el backend ya ordena por 'orden'). --}}
+     Se muestra SIEMPRE al cargar la pagina (cada carga avanza al siguiente lote). Orden fijo (el backend ya ordena por 'orden'). --}}
 <style>
     #flyers-overlay { position:fixed; inset:0; z-index:99999; display:none; align-items:center; justify-content:center;
         background:rgba(0,0,0,0.82); backdrop-filter:blur(3px); -webkit-backdrop-filter:blur(3px); padding:18px; }
@@ -31,9 +31,6 @@
     var FLYERS = @json($flyers);
     if (!Array.isArray(FLYERS) || FLYERS.length === 0) return;
 
-    // Mostrar una sola vez por visita (sesion del navegador). Recargas no avanzan el lote.
-    try { if (sessionStorage.getItem('flyers_sesion') === '1') return; } catch (e) {}
-
     var overlay = document.getElementById('flyers-overlay');
     var box = overlay ? overlay.querySelector('.flyers-box') : null;
     if (!overlay || !box) return;
@@ -58,7 +55,6 @@
     // Registrar los mostrados (cookie 1 año) + marcar la visita
     lote.forEach(function (f) { vistos.push(String(f.id)); });
     setCookie('flyers_vistos', vistos.join(','), 365);
-    try { sessionStorage.setItem('flyers_sesion', '1'); } catch (e) {}
 
     // Pintar las celdas del lote (solo estas imagenes se cargan)
     lote.forEach(function (f) {
