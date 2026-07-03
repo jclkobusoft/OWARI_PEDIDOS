@@ -91,7 +91,15 @@ class GenerarPromocionesExcel extends Command
 
         $rows = [];
         foreach ($porClave as $clave => $it) {
-            $cat  = $catalogo->get($clave);
+            $cat = $catalogo->get($clave);
+
+            // SAE devuelve miles de claves promocionales que no son productos
+            // vendibles de la tienda (paquetes, catalogos, baleros de importacion,
+            // claves tipo PROMOCIONAL/DESCUENTO, etc.). Igual que la pagina de
+            // descuentos, solo incluimos las que existen como producto en SOMA;
+            // asi el Excel coincide con lo que ve el cliente.
+            if ($cat === null) continue;
+
             $desc = trim(implode(' ', array_filter([
                 $cat->descripcion_1 ?? null,
                 $cat->descripcion_2 ?? null,
