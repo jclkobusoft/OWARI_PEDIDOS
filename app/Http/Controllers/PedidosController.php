@@ -282,12 +282,24 @@ class PedidosController extends Controller
         ]];
         foreach ($partidas as $key => $value) {
             // code...
+            // La clave del proveedor debe ser la del PROVEEDOR PRINCIPAL del
+            // producto (productos.id_proveedor en SOMA), no la primera fila que
+            // aparezca en productos_proveedores. Por eso arrancamos desde
+            // `productos` y unimos productos_proveedores solo con el proveedor
+            // principal (pp.id_proveedor = p.id_proveedor). Si el principal no
+            // tiene fila en productos_proveedores, clave_proveedor queda null y
+            // el fallback de abajo pone 'SIN CLAVE', pero el nombre del
+            // proveedor (prov.clave) igual se resuelve por p.id_proveedor.
             $provInfo = \DB::connection('owari_soma')->select("
                 SELECT pp.clave_proveedor, prov.clave as proveedor
-                FROM productos_proveedores pp
-                INNER JOIN productos p ON pp.id_producto = p.id
-                LEFT JOIN proveedores prov ON pp.id_proveedor = prov.id
-                WHERE p.clave = ? AND pp.deleted_at IS NULL AND p.deleted_at IS NULL
+                FROM productos p
+                LEFT JOIN proveedores prov
+                       ON prov.id = p.id_proveedor
+                LEFT JOIN productos_proveedores pp
+                       ON pp.id_producto  = p.id
+                      AND pp.id_proveedor = p.id_proveedor
+                      AND pp.deleted_at IS NULL
+                WHERE p.clave = ? AND p.deleted_at IS NULL
                 LIMIT 1
             ", [$value['codigo']]);
             $provData = $provInfo[0] ?? null;
