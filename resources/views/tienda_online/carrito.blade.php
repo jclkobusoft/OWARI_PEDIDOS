@@ -545,7 +545,7 @@
                             </div>
                             <div class="mb-3">
                                 <label for="fecha_recoge" class="form-label" id="texto_fecha_recoge">Pasare por mi pedido
-                                    a las (solo si recogo en tienda):</label>
+                                    a las (solo si recojo en tienda):</label>
                                 <input type="datetime-local" id="fecha_recoge" class="form-control"
                                     placeholder="Dia/Hora para recoger el pedido" min="{{ date('Y-m-d\TH:i') }}"
                                     required>
