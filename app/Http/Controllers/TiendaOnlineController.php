@@ -1546,14 +1546,17 @@ class TiendaOnlineController extends Controller
         // Compat: el externo antes devolvia un arreglo plano de claves. Ahora
         // devuelve objetos {clave, vigencia}. Soportamos ambos por si el externo
         // aun no se despliega.
-        $vigencias = [];   // clave => 'Y-m-d'|null
+        $vigencias = [];   // clave => 'Y-m-d'|null (fin, mas proxima a vencer)
+        $inicios   = [];   // clave => 'Y-m-d'|null (inicio, promo mas nueva)
         foreach ($items as $it) {
             if (is_array($it)) {
                 $clave = $it['clave'] ?? null;
                 if ($clave === null) continue;
                 $vigencias[$clave] = $it['vigencia'] ?? null;
+                $inicios[$clave]   = $it['inicio'] ?? null;
             } else {
                 $vigencias[$it] = null;
+                $inicios[$it]   = null;
             }
         }
         $claves = array_values(array_unique(array_keys($vigencias)));
@@ -1609,18 +1612,29 @@ class TiendaOnlineController extends Controller
                 $r->grupo             = $r->grupo    ?: 'SIN GRUPO';
                 $r->subgrupo          = $r->subgrupo ?: 'SIN SUBGRUPO';
                 $r->vigencia          = $vigencias[$r->codigo_nikko] ?? null;
+                $r->inicio            = $inicios[$r->codigo_nikko] ?? null;
 
                 $catalogo->push($r);
             }
+
+            // Ordenar por promocion MAS NUEVA: fecha de inicio (V_DFECH) de la
+            // politica descendente. Los que no tienen fecha de inicio van al
+            // final ('' ordena despues por sortByDesc con '' minimo).
+            $catalogo = $catalogo->sortByDesc(function ($p) {
+                return $p->inicio ?? '';
+            })->values();
         }
 
-        // 3) Categorias (grupo -> subgrupo) SIEMPRE desde el set completo, para
-        //    que la barra lateral muestre todo aunque haya filtro/paginacion.
-        $categorias = [];
-        foreach ($catalogo as $val) {
-            $categorias[$val->grupo][$val->subgrupo] = true;
-        }
-        ksort($categorias);
+        // 3) Lista PLANA de subgrupos, unica y ordenada alfabeticamente, tomada
+        //    del set completo (para que la barra lateral muestre todos aunque
+        //    haya filtro/paginacion). El cliente los ve directo, sin desplegar
+        //    categorias.
+        $subgrupos = $catalogo
+            ->pluck('subgrupo')
+            ->filter(function ($s) { return $s !== null && $s !== ''; })
+            ->unique()
+            ->sort(SORT_NATURAL | SORT_FLAG_CASE)
+            ->values();
 
         $total_resultados = $catalogo->count();
 
@@ -1669,7 +1683,7 @@ class TiendaOnlineController extends Controller
         $pagina = $p;
 
         return view('tienda_online.descuentos', compact(
-            'resultados', 'total_resultados', 'titulo', 'categorias',
+            'resultados', 'total_resultados', 'titulo', 'subgrupos',
             'grupoFiltro', 'subgrupoFiltro', 'botones', 'pagina', 'peticion', 'total_paginas'
         ));
     }

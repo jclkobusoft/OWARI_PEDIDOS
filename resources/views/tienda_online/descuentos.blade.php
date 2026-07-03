@@ -28,44 +28,29 @@
                 <div class="col-lg-3 col-md-3 d-none d-md-block">
                     <div class="shop-category" style="position: sticky; top:20px;">
                         <div class="category-title">
-                            <a href="{{ route('tienda_online.descuentos') }}">Categorias</a>
+                            <a href="{{ route('tienda_online.descuentos') }}">Subgrupos</a>
                         </div>
-                        @if($grupoFiltro !== '' || $subgrupoFiltro !== '')
-                            <a href="{{ route('tienda_online.descuentos') }}" class="d-block mb-2"><small>&laquo; Ver todos</small></a>
-                        @endif
                         <div class="shop-category-menu">
-
-                            <div class="accordion accordion-flush" id="accordionFlushExample">
-
-                                <?php $i=0; ?>
-                                @foreach($categorias as $key => $value)
-                                    <div class="accordion-item">
-                                        <h2 class="accordion-header" id="flush-heading{{$i}}">
-                                            <button class="accordion-button {{ $grupoFiltro === $key ? '' : 'collapsed' }}" type="button" data-bs-toggle="collapse" data-bs-target="#flush-collapse{{$i}}" aria-expanded="{{ $grupoFiltro === $key ? 'true' : 'false' }}" aria-controls="flush-collapse{{$i}}">
-                                                {{ $key }}
-                                            </button>
-                                        </h2>
-                                        <div id="flush-collapse{{$i}}" class="accordion-collapse collapse {{ $grupoFiltro === $key ? 'show' : '' }}" aria-labelledby="flush-heading{{$i}}" data-bs-parent="#accordionFlushExample">
-                                            <div class="accordion-body p-0">
-                                                <ul class="w-100 list-group">
-                                                    @foreach($value as $indice => $valor)
-                                                        <li class="list-group-item w-100 {{ ($grupoFiltro === $key && $subgrupoFiltro === $indice) ? 'active' : '' }}">
-                                                            <small>
-                                                                <a href="{{ route('tienda_online.descuentos', ['grupo' => $key, 'subgrupo' => $indice]) }}"
-                                                                   class="{{ ($grupoFiltro === $key && $subgrupoFiltro === $indice) ? 'text-white' : '' }}">
-                                                                    {{ $indice }}
-                                                                </a>
-                                                            </small>
-                                                        </li>
-                                                    @endforeach
-                                                </ul>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <?php $i++; ?>
+                            <ul class="w-100 list-group" style="max-height:75vh; overflow-y:auto;">
+                                <li class="list-group-item w-100 {{ $subgrupoFiltro === '' ? 'active' : '' }}">
+                                    <small>
+                                        <a href="{{ route('tienda_online.descuentos') }}"
+                                           class="{{ $subgrupoFiltro === '' ? 'text-white' : '' }}">
+                                            Ver todos
+                                        </a>
+                                    </small>
+                                </li>
+                                @foreach($subgrupos as $sg)
+                                    <li class="list-group-item w-100 {{ $subgrupoFiltro === $sg ? 'active' : '' }}">
+                                        <small>
+                                            <a href="{{ route('tienda_online.descuentos', ['subgrupo' => $sg]) }}"
+                                               class="{{ $subgrupoFiltro === $sg ? 'text-white' : '' }}">
+                                                {{ $sg }}
+                                            </a>
+                                        </small>
+                                    </li>
                                 @endforeach
-                            </div>
-
+                            </ul>
                         </div>
                     </div>
                 </div>
