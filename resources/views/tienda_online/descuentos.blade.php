@@ -19,22 +19,6 @@
                                 {{ $total_resultados }} producto(s)
                             @endif
                         </h4>
-
-                        {{-- Buscador propio de descuentos (independiente del de /productos) --}}
-                        <form action="{{ route('tienda_online.descuentos') }}" method="GET" class="mt-2">
-                            @if($subgrupoFiltro !== '')
-                                <input type="hidden" name="subgrupo" value="{{ $subgrupoFiltro }}">
-                            @endif
-                            <div class="input-group">
-                                <input type="text" name="q" value="{{ $q }}" class="form-control"
-                                       placeholder="Buscar en descuentos: clave, marca, descripción...">
-                                <button class="btn btn-primary" type="submit"><i class="bi bi-search"></i></button>
-                                @if($q !== '')
-                                    <a class="btn btn-outline-secondary"
-                                       href="{{ route('tienda_online.descuentos', $subgrupoFiltro !== '' ? ['subgrupo' => $subgrupoFiltro] : []) }}">Limpiar</a>
-                                @endif
-                            </div>
-                        </form>
                     </div>
                 </div>
             </div>
@@ -47,8 +31,27 @@
     <section class="shop-area pb-5 pt-5">
         <div class="container">
             <div class="row">
-                <div class="col-lg-3 col-md-3 d-none d-md-block">
-                    <div class="shop-category">
+                <div class="col-lg-3 col-md-3">
+                    {{-- Buscador propio de descuentos (independiente del de /productos).
+                         Va en el sidebar y se mantiene visible tambien en movil. --}}
+                    <form action="{{ route('tienda_online.descuentos') }}" method="GET" class="mb-3">
+                        @if($subgrupoFiltro !== '')
+                            <input type="hidden" name="subgrupo" value="{{ $subgrupoFiltro }}">
+                        @endif
+                        <div class="input-group">
+                            <input type="text" name="q" value="{{ $q }}" class="form-control"
+                                   placeholder="Buscar en descuentos...">
+                            <button class="btn btn-primary" type="submit"><i class="bi bi-search"></i></button>
+                        </div>
+                        @if($q !== '')
+                            <a class="d-inline-block mt-1 small"
+                               href="{{ route('tienda_online.descuentos', $subgrupoFiltro !== '' ? ['subgrupo' => $subgrupoFiltro] : []) }}">
+                                <i class="bi bi-x-circle"></i> Limpiar búsqueda
+                            </a>
+                        @endif
+                    </form>
+
+                    <div class="shop-category d-none d-md-block">
                         <div class="category-title">
                             <a href="{{ route('tienda_online.descuentos') }}">Filtrar descuentos por:</a>
                         </div>
