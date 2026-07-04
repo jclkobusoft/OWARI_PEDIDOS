@@ -8,11 +8,33 @@
                 <div class="row">
                     <div class="col-12 col-md-6 text-left offset-md-3">
                         <h4>Nuestros productos en descuento</h4>
-                        <h4>{{ $total_resultados }} producto(s)
-                            @if($grupoFiltro !== '' || $subgrupoFiltro !== '')
-                                <small class="text-muted">— filtrando: {{ $grupoFiltro }}{{ $subgrupoFiltro !== '' ? ' / '.$subgrupoFiltro : '' }}</small>
+                        <h4>
+                            @if($q !== '' || $grupoFiltro !== '' || $subgrupoFiltro !== '')
+                                {{ $total_filtrados }} de {{ $total_resultados }} producto(s)
+                                <small class="text-muted">
+                                    @if($subgrupoFiltro !== '')— {{ $subgrupoFiltro }}@endif
+                                    @if($q !== '')— buscando: "{{ $q }}"@endif
+                                </small>
+                            @else
+                                {{ $total_resultados }} producto(s)
                             @endif
                         </h4>
+
+                        {{-- Buscador propio de descuentos (independiente del de /productos) --}}
+                        <form action="{{ route('tienda_online.descuentos') }}" method="GET" class="mt-2">
+                            @if($subgrupoFiltro !== '')
+                                <input type="hidden" name="subgrupo" value="{{ $subgrupoFiltro }}">
+                            @endif
+                            <div class="input-group">
+                                <input type="text" name="q" value="{{ $q }}" class="form-control"
+                                       placeholder="Buscar en descuentos: clave, marca, descripción...">
+                                <button class="btn btn-primary" type="submit"><i class="bi bi-search"></i></button>
+                                @if($q !== '')
+                                    <a class="btn btn-outline-secondary"
+                                       href="{{ route('tienda_online.descuentos', $subgrupoFiltro !== '' ? ['subgrupo' => $subgrupoFiltro] : []) }}">Limpiar</a>
+                                @endif
+                            </div>
+                        </form>
                     </div>
                 </div>
             </div>
@@ -43,7 +65,7 @@
                                 @foreach($subgrupos as $sg)
                                     <li class="list-group-item w-100 {{ $subgrupoFiltro === $sg ? 'active' : '' }}">
                                         <small>
-                                            <a href="{{ route('tienda_online.descuentos', ['subgrupo' => $sg]) }}"
+                                            <a href="{{ route('tienda_online.descuentos', array_merge(['subgrupo' => $sg], $q !== '' ? ['q' => $q] : [])) }}"
                                                class="{{ $subgrupoFiltro === $sg ? 'text-white' : '' }}">
                                                 {{ $sg }}
                                             </a>
@@ -230,7 +252,8 @@
                         @empty
                             <div class="col-12 text-center py-5">
                                 <h5 class="text-muted">No hay productos en descuento
-                                    @if($grupoFiltro !== '' || $subgrupoFiltro !== '') para este filtro @endif.
+                                    @if($q !== '') para "{{ $q }}"
+                                    @elseif($grupoFiltro !== '' || $subgrupoFiltro !== '') para este filtro @endif.
                                 </h5>
                             </div>
                         @endforelse

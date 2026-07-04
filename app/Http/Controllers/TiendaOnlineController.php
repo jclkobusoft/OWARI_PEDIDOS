@@ -1524,11 +1524,23 @@ class TiendaOnlineController extends Controller
         $grupoFiltro    = trim((string) $request->query('grupo', ''));
         $subgrupoFiltro = trim((string) $request->query('subgrupo', ''));
 
-        // 1) Lista de productos con descuento + vigencia. Los descuentos viven
-        //    en SAE (politicas POLI01), por eso esta lista sigue viniendo del
-        //    externo. Devuelve [{clave, vigencia}] con la fecha mas proxima a
-        //    vencer por producto (o null si la promo no expira).
-        $url = 'https://sistemasowari.com:8443/catalowari/api/productos-descuentos?' . http_build_query(["cliente" => \Auth::user()->clave_cliente]);
+        // Buscador propio de descuentos (independiente del de /productos). Se
+        // resuelve en memoria sobre el catalogo ya cargado: partimos la
+        // consulta en palabras y exigimos que TODAS aparezcan (AND).
+        $q         = trim((string) $request->query('q', ''));
+        $qPalabras = $q === '' ? [] : preg_split('/\s+/', mb_strtolower($q), -1, PREG_SPLIT_NO_EMPTY);
+
+        // 1+2) Catalogo de descuentos del cliente = lista SAE (POLI01) + datos
+        //      SOMA. Es lo caro del request (externo + Postgres) y es identico
+        //      para buscar / paginar / filtrar por subgrupo, asi que lo
+        //      cacheamos por cliente 15 min (las promos cambian ~diario: el
+        //      Excel se regenera a las 02:00). Asi solo el 1er load paga
+        //      SAE+SOMA; buscar/paginar/subgrupo son filtros en RAM.
+        $claveCliente = \Auth::user()->clave_cliente;
+        $catalogo = \Cache::remember('descuentos_catalogo_' . $claveCliente, now()->addMinutes(15), function () use ($claveCliente) {
+        // 1) Lista de productos con descuento + vigencia desde el externo (SAE).
+        //    Devuelve [{clave, vigencia, inicio}].
+        $url = 'https://sistemasowari.com:8443/catalowari/api/productos-descuentos?' . http_build_query(["cliente" => $claveCliente]);
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, $url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -1625,6 +1637,9 @@ class TiendaOnlineController extends Controller
             })->values();
         }
 
+        return $catalogo;
+        });
+
         // 3) Lista PLANA de subgrupos, unica y ordenada alfabeticamente, tomada
         //    del set completo (para que la barra lateral muestre todos aunque
         //    haya filtro/paginacion). El cliente los ve directo, sin desplegar
@@ -1639,9 +1654,22 @@ class TiendaOnlineController extends Controller
         $total_resultados = $catalogo->count();
 
         // 4) Aplicar filtro de grupo/subgrupo (si viene de la barra lateral).
-        $filtrados = $catalogo->filter(function ($p) use ($grupoFiltro, $subgrupoFiltro) {
+        $filtrados = $catalogo->filter(function ($p) use ($grupoFiltro, $subgrupoFiltro, $qPalabras) {
             if ($grupoFiltro !== '' && $p->grupo !== $grupoFiltro) return false;
             if ($subgrupoFiltro !== '' && $p->subgrupo !== $subgrupoFiltro) return false;
+            if (!empty($qPalabras)) {
+                // Texto contra el que se busca: clave, marca, grupo/subgrupo,
+                // descripciones y equivalencias.
+                $heno = mb_strtolower(implode(' ', array_filter([
+                    $p->codigo_nikko, $p->marca_comercial, $p->grupo, $p->subgrupo,
+                    $p->descripcion_1 ?? '', $p->descripcion_2 ?? '', $p->descripcion_3 ?? '',
+                    $p->equivalencia_1 ?? '', $p->equivalencia_2 ?? '', $p->equivalencia_3 ?? '',
+                    $p->equivalencia_4 ?? '', $p->equivalencia_5 ?? '',
+                ])));
+                foreach ($qPalabras as $palabra) {
+                    if (!str_contains($heno, $palabra)) return false;
+                }
+            }
             return true;
         })->values();
 
@@ -1661,6 +1689,7 @@ class TiendaOnlineController extends Controller
         // Base del query string para los links, terminada en "p=" (igual que en
         // productos: <url>?<filtros>&p=<n>). Preserva grupo/subgrupo.
         $filtrosQuery = [];
+        if ($q !== '')              $filtrosQuery['q'] = $q;
         if ($grupoFiltro !== '')    $filtrosQuery['grupo'] = $grupoFiltro;
         if ($subgrupoFiltro !== '') $filtrosQuery['subgrupo'] = $subgrupoFiltro;
         $peticion = '?' . http_build_query($filtrosQuery);
@@ -1683,8 +1712,8 @@ class TiendaOnlineController extends Controller
         $pagina = $p;
 
         return view('tienda_online.descuentos', compact(
-            'resultados', 'total_resultados', 'titulo', 'subgrupos',
-            'grupoFiltro', 'subgrupoFiltro', 'botones', 'pagina', 'peticion', 'total_paginas'
+            'resultados', 'total_resultados', 'total_filtrados', 'titulo', 'subgrupos',
+            'grupoFiltro', 'subgrupoFiltro', 'botones', 'pagina', 'peticion', 'total_paginas', 'q'
         ));
     }
 
