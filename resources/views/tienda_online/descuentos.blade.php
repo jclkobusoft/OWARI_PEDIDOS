@@ -34,18 +34,16 @@
                 <div class="col-lg-3 col-md-3">
                     {{-- Buscador propio de descuentos (independiente del de /productos).
                          Va en el sidebar y se mantiene visible tambien en movil. --}}
+                    {{-- La busqueda es global: NO envia subgrupo, asi buscar limpia
+                         cualquier categoria seleccionada (son excluyentes). --}}
                     <form action="{{ route('tienda_online.descuentos') }}" method="GET" class="mb-3">
-                        @if($subgrupoFiltro !== '')
-                            <input type="hidden" name="subgrupo" value="{{ $subgrupoFiltro }}">
-                        @endif
                         <div class="input-group">
                             <input type="text" name="q" value="{{ $q }}" class="form-control"
                                    placeholder="Buscar en descuentos...">
                             <button class="btn btn-primary" type="submit"><i class="bi bi-search"></i></button>
                         </div>
                         @if($q !== '')
-                            <a class="d-inline-block mt-1 small"
-                               href="{{ route('tienda_online.descuentos', $subgrupoFiltro !== '' ? ['subgrupo' => $subgrupoFiltro] : []) }}">
+                            <a class="d-inline-block mt-1 small" href="{{ route('tienda_online.descuentos') }}">
                                 <i class="bi bi-x-circle"></i> Limpiar búsqueda
                             </a>
                         @endif
@@ -68,7 +66,7 @@
                                 @foreach($subgrupos as $sg)
                                     <li class="list-group-item w-100 {{ $subgrupoFiltro === $sg ? 'active' : '' }}">
                                         <small>
-                                            <a href="{{ route('tienda_online.descuentos', array_merge(['subgrupo' => $sg], $q !== '' ? ['q' => $q] : [])) }}"
+                                            <a href="{{ route('tienda_online.descuentos', ['subgrupo' => $sg]) }}"
                                                class="{{ $subgrupoFiltro === $sg ? 'text-white' : '' }}">
                                                 {{ $sg }}
                                             </a>

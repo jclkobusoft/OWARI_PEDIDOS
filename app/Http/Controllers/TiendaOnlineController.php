@@ -1530,6 +1530,13 @@ class TiendaOnlineController extends Controller
         $q         = trim((string) $request->query('q', ''));
         $qPalabras = $q === '' ? [] : preg_split('/\s+/', mb_strtolower($q), -1, PREG_SPLIT_NO_EMPTY);
 
+        // Categoria y busqueda son EXCLUYENTES: si el cliente entra a un
+        // subgrupo, el buscador por palabras no tiene efecto.
+        if ($subgrupoFiltro !== '' || $grupoFiltro !== '') {
+            $q = '';
+            $qPalabras = [];
+        }
+
         // 1+2) Catalogo de descuentos del cliente = lista SAE (POLI01) + datos
         //      SOMA. Es lo caro del request (externo + Postgres) y es identico
         //      para buscar / paginar / filtrar por subgrupo, asi que lo
