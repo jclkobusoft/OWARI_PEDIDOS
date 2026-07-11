@@ -2541,9 +2541,34 @@ class TiendaOnlineController extends Controller
             }
         }
 
+        // Descripcion desde SOMA (una sola consulta por las claves del carrito).
+        // Es rapido: whereIn sobre pocas claves; las que no existan en SOMA
+        // (PROMOCIONAL, etc.) quedan con descripcion vacia.
+        $descripciones = [];
+        $claves = array_keys($porClave);
+        if (!empty($claves)) {
+            $rows = \DB::connection('owari_soma')->table('productos as p')
+                ->leftJoin('productos_web as pw', function ($j) {
+                    $j->on('pw.id_producto', '=', 'p.id')->whereNull('pw.deleted_at');
+                })
+                ->whereIn('p.clave', $claves)
+                ->whereNull('p.deleted_at')
+                ->get(['p.clave', 'pw.descripcion_1', 'pw.descripcion_2', 'pw.descripcion_3']);
+            foreach ($rows as $r) {
+                if (isset($descripciones[$r->clave])) continue;
+                $descripciones[$r->clave] = trim(implode(' ', array_filter([
+                    $r->descripcion_1, $r->descripcion_2, $r->descripcion_3,
+                ])));
+            }
+        }
+
         $items = [];
         foreach ($porClave as $clave => $cant) {
-            $items[] = ['clave' => $clave, 'cantidad' => $cant];
+            $items[] = [
+                'clave'       => $clave,
+                'descripcion' => $descripciones[$clave] ?? '',
+                'cantidad'    => $cant,
+            ];
         }
         return $items;
     }
@@ -2562,9 +2587,9 @@ class TiendaOnlineController extends Controller
     {
         $items = $this->itemsCarritoRapido();
 
-        $filas = [['CLAVE', 'CANTIDAD']];
+        $filas = [['CLAVE', 'DESCRIPCION', 'CANTIDAD']];
         foreach ($items as $it) {
-            $filas[] = [$it['clave'], $it['cantidad']];
+            $filas[] = [$it['clave'], $it['descripcion'] ?? '', $it['cantidad']];
         }
 
         $nombre = 'carrito-' . \Auth::user()->clave_cliente . '-' . date('Ymd_His') . '.xlsx';

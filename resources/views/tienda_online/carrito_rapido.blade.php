@@ -40,9 +40,10 @@
                         <table class="table table-striped table-bordered align-middle">
                             <thead>
                                 <tr>
-                                    <th style="width:60px;">#</th>
-                                    <th>Clave</th>
-                                    <th style="width:120px;">Cantidad</th>
+                                    <th style="width:50px;">#</th>
+                                    <th style="width:150px;">Clave</th>
+                                    <th>Descripción</th>
+                                    <th style="width:110px;">Cantidad</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -50,13 +51,14 @@
                                     <tr>
                                         <td>{{ $i + 1 }}</td>
                                         <td>{{ $it['clave'] }}</td>
+                                        <td>{{ $it['descripcion'] ?? '' }}</td>
                                         <td>{{ $it['cantidad'] }}</td>
                                     </tr>
                                 @endforeach
                             </tbody>
                             <tfoot>
                                 <tr>
-                                    <th colspan="2" class="text-end">Total de piezas</th>
+                                    <th colspan="3" class="text-end">Total de piezas</th>
                                     <th>{{ $total_piezas }}</th>
                                 </tr>
                             </tfoot>
