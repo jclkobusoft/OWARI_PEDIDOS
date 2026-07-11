@@ -160,7 +160,7 @@
 
     @if(\Auth::check() && isset(\Auth::user()->clienteData) && \Auth::user()->clienteData->tiendita)
         <div class="banner-tiendita-activa" style="background-color:#b03a2e; color:#fff; text-align:center; padding:10px 15px; font-weight:600; font-size:14px; line-height:1.4;">
-            Tu tiendita esta activada y los precios mostrados ya incluyen tu margen ({{ \Auth::user()->clienteData->porcentaje }}%).
+            Tu tiendita esta activada.
             <a href="{{ route('tienda_online.editar_cliente') }}" style="color:#fff; text-decoration:underline; margin-left:6px;">
                 Click aqui para editar.
             </a>
