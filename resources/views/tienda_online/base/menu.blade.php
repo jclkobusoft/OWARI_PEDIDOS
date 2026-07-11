@@ -1,7 +1,3 @@
-@php
-    // Conteo de productos del carrito (ahora persistido en BD, tabla carrito_items).
-    $carritoCount = \Auth::check() ? (new \App\Services\CarritoService())->contar('normal') : 0;
-@endphp
 <div class="container">
     <nav class="navbar navbar-expand-lg bg-body-tertiary">
         <div class="container-fluid">
@@ -54,7 +50,15 @@
             <div class="d-flex">
                 <a href="{{ route('tienda_online.carrito') }}" class="d-flex">
                 <i class="bi bi-cart-fill" style="font-size: 18px; margin-top: 10px;"></i><span style="margin-top: 10px;height: 22px;" class="badge rounded-pill bg-danger cantidad_carrito">
-                    {{ $carritoCount }}
+                     @if(Session::has('cart'))
+                        @if(count(Session::get('cart')) >0)
+                          {{ count(Session::get('cart')) }}
+                        @else
+                          0
+                        @endif
+                      @else
+                        0
+                    @endif
 
                 </span>
             </a>
@@ -79,7 +83,15 @@
             <div class="d-flex col">
                 <a href="{{ route('tienda_online.carrito') }}" class="d-flex">
                 <i class="bi bi-cart-fill" style="font-size: 18px; margin-top: 10px;"></i><span style="margin-top: 10px;height: 22px;" class="badge rounded-pill bg-danger cantidad_carrito">
-                    {{ $carritoCount }}
+                     @if(Session::has('cart'))
+                        @if(count(Session::get('cart')) >0)
+                          {{ count(Session::get('cart')) }}
+                        @else
+                          0
+                        @endif
+                      @else
+                        0
+                    @endif
 
                 </span>
             </a>

@@ -73,18 +73,11 @@ class TiendaOnlineController extends Controller
     }
 
 
-    /** Acceso al carrito persistido en BD (tabla carrito_items, por cliente). */
-    private function carritoSvc(): \App\Services\CarritoService
-    {
-        return new \App\Services\CarritoService();
-    }
-
     public function aux()
     {
-        $svc = $this->carritoSvc();
-        $carrito = $svc->obtener('normal');
+        $carrito = \Session::get('cart');
         array_push($carrito, ['numero_parte' => '04-E43023AN0C-KB', 'cantidad' => 10, 'partida' => [], 'sustituto' => false]);
-        $svc->guardar('normal', $carrito);
+        \Session::put('cart', $carrito);
     }
 
     public function login()
@@ -938,10 +931,8 @@ class TiendaOnlineController extends Controller
     {
         extract($request->all());
 
-        $svc = $this->carritoSvc();
-        $carrito = [];
 
-        if (!$svc->tiene('normal')) {
+        if (!\Session::has('cart')) {
 
             if ($cantidad > $partida['existencia'])
                 $cantidad = $partida['existencia'];
@@ -952,7 +943,7 @@ class TiendaOnlineController extends Controller
 
         } else {
 
-            $carrito = $svc->obtener('normal');
+            $carrito = \Session::get('cart');
             $solicitado = 0;
             foreach ($carrito as $key => $value) {
                 if ($value['numero_parte'] == $numero_parte) {
@@ -984,7 +975,7 @@ class TiendaOnlineController extends Controller
 
         }
 
-        $svc->guardar('normal', $carrito);
+        \Session::put('cart', $carrito);
         return json_encode([
             'code' => 1,
             'carrito' => $carrito,
@@ -996,10 +987,7 @@ class TiendaOnlineController extends Controller
     {
         extract($request->all());
 
-        $svc = $this->carritoSvc();
-        $carrito = [];
-
-        if (!$svc->tiene('especial')) {
+        if (!\Session::has('cartEspecial')) {
 
             if ($cantidad > 0) {
                 $carrito = [['numero_parte' => $numero_parte, 'cantidad' => $cantidad, 'partida' => $partida, 'sustituto' => $sustituto]];
@@ -1007,7 +995,7 @@ class TiendaOnlineController extends Controller
 
         } else {
 
-            $carrito = $svc->obtener('especial');
+            $carrito = \Session::get('cartEspecial');
             $solicitado = 0;
             foreach ($carrito as $key => $value) {
                 if ($value['numero_parte'] == $numero_parte) {
@@ -1028,7 +1016,7 @@ class TiendaOnlineController extends Controller
 
         }
 
-        $svc->guardar('especial', $carrito);
+        \Session::put('cartEspecial', $carrito);
         return json_encode([
             'code' => 1,
             'carrito' => $carrito,
@@ -1040,9 +1028,8 @@ class TiendaOnlineController extends Controller
         $titulo = "Carrito";
         $premio = "PROMOCIONAL";
         $productos = [];
-        $svc = $this->carritoSvc();
-        if ($svc->tiene('normal')) {
-            $carrito = $svc->obtener('normal');
+        if (\Session::has('cart')) {
+            $carrito = \Session::get('cart');
 
             $existe_premio_carrito = false;
             foreach ($carrito as $key => $value) {
@@ -1052,7 +1039,7 @@ class TiendaOnlineController extends Controller
             }
 
             if ($existe_premio_carrito && count($carrito) == 1) {
-                $svc->guardar('normal', []);
+                \Session::put('cart', []);
                 $carrito = [];
             }
 
@@ -1178,8 +1165,8 @@ class TiendaOnlineController extends Controller
         }
 
         $productos_especiales = [];
-        if ($svc->tiene('especial')) {
-            $carrito = $svc->obtener('especial');
+        if (\Session::has('cartEspecial')) {
+            $carrito = \Session::get('cartEspecial');
             $productos_especiales = $this->buscarProductosPorClaves(array_column($carrito, 'numero_parte'));
             foreach ($productos_especiales as $key => $value) {
                 $motores = $this->buscarAplicacionesPorClave($value['codigo_nikko']);
@@ -1405,7 +1392,8 @@ class TiendaOnlineController extends Controller
             return redirect()->route('tienda_online.dashboard');
 
 
-        $this->carritoSvc()->vaciarTodo();
+        session()->forget(['cart', 'cartEspecial']);
+        session()->save();
 
         $titulo = "Carrito exitoso";
         return view('tienda_online.exito', compact('titulo', 'id_pedido'));
@@ -1818,7 +1806,10 @@ class TiendaOnlineController extends Controller
 
     public function vaciarCarrito()
     {
-        $this->carritoSvc()->vaciarTodo();
+
+        //dd(\Session::get('cart'),\Session::get('cartEspecial'));
+        \Session::put('cart', []);
+        \Session::put('cartEspecial', []);
         return false;
     }
 
@@ -2290,9 +2281,8 @@ class TiendaOnlineController extends Controller
         $titulo = "Carrito";
         $premio = "PROMOCIONAL";
         $productos = [];
-        $svc = $this->carritoSvc();
-        if ($svc->tiene('normal')) {
-            $carrito = $svc->obtener('normal');
+        if (\Session::has('cart')) {
+            $carrito = \Session::get('cart');
 
             $existe_premio_carrito = false;
             foreach ($carrito as $key => $value) {
@@ -2302,7 +2292,7 @@ class TiendaOnlineController extends Controller
             }
 
             if ($existe_premio_carrito && count($carrito) == 1) {
-                $svc->guardar('normal', []);
+                \Session::put('cart', []);
                 $carrito = [];
             }
 
@@ -2428,8 +2418,8 @@ class TiendaOnlineController extends Controller
         }
 
         $productos_especiales = [];
-        if ($svc->tiene('especial')) {
-            $carrito = $svc->obtener('especial');
+        if (\Session::has('cartEspecial')) {
+            $carrito = \Session::get('cartEspecial');
             $productos_especiales = $this->buscarProductosPorClaves(array_column($carrito, 'numero_parte'));
             foreach ($productos_especiales as $key => $value) {
                 $motores = $this->buscarAplicacionesPorClave($value['codigo_nikko']);
@@ -2494,7 +2484,8 @@ class TiendaOnlineController extends Controller
     {
         extract($r->all());
 
-        $this->carritoSvc()->vaciarTodo();
+        session()->forget(['cart', 'cartEspecial']); // o ['cart', 'cart.items', 'cart_count']
+        session()->save();
 
         $titulo = "<br>
         Nos comunicaremos contigo para darle seguimiento.
@@ -2504,7 +2495,7 @@ class TiendaOnlineController extends Controller
 
     public function carritoSesion()
     {
-        $carrito = $this->carritoSvc()->obtener('normal');
+        $carrito = \Session::get('cart');
 
         echo "<table><tr><th>CLAVE</th><th>CANTIDAD</th></tr>";
         if ($carrito) {
@@ -2524,15 +2515,14 @@ class TiendaOnlineController extends Controller
 
     /**
      * Junta el carrito normal y el especial en filas [clave, cantidad],
-     * sumando cantidades si una misma clave aparece repetida. Lee el carrito
-     * persistido (tabla), asi que es instantaneo (sin analisis de precios).
+     * sumando cantidades si una misma clave aparece repetida. Solo lee la
+     * sesion, asi que es instantaneo.
      */
     private function itemsCarritoRapido(): array
     {
-        $svc = $this->carritoSvc();
         $porClave = [];
-        foreach (['normal', 'especial'] as $llave) {
-            $carrito = $svc->obtener($llave);
+        foreach (['cart', 'cartEspecial'] as $llave) {
+            $carrito = \Session::get($llave, []);
             if (!is_array($carrito)) continue;
             foreach ($carrito as $item) {
                 $clave = $item['numero_parte'] ?? null;
@@ -2599,7 +2589,8 @@ class TiendaOnlineController extends Controller
     /** Vacia por completo el carrito (normal y especial) y regresa al aux. */
     public function vaciarCarritoRapido()
     {
-        $this->carritoSvc()->vaciarTodo();
+        \Session::put('cart', []);
+        \Session::put('cartEspecial', []);
         \Session::flash('status', 'Tu carrito se vació correctamente.');
         return redirect()->route('tienda_online.carrito_rapido');
     }

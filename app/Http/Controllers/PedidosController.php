@@ -354,8 +354,7 @@ class PedidosController extends Controller
             // sin importar el proveedor (incluido SYD) ni si el pedido normal
             // logro insertarse o no. Asi evitamos que el cliente vea las
             // mismas partidas en una proxima visita y las vuelva a generar.
-            // El carrito ahora vive en BD (carrito_items), ligado al cliente.
-            (new \App\Services\CarritoService())->vaciarTipo('especial');
+            \Session::put('cartEspecial', []);
 
 
         return json_encode([
