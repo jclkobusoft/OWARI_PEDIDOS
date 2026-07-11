@@ -8,7 +8,8 @@
                 <h4 class="mb-1">Carrito rápido</h4>
                 <p class="text-muted" style="font-size:13px;">
                     Vista rápida de tu pedido (clave y cantidad), sin esperar el análisis de precios.
-                    Descárgalo en Excel y compártelo con telemarketing para que lo capturen.
+                    Si tienes problemas para ver tu pedido, descárgalo y compártelo; después limpia el
+                    carrito para reiniciarlo y poder meter nuevos productos a tu carrito.
                 </p>
 
                 @if (Session::has('status'))
