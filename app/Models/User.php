@@ -64,4 +64,14 @@ class User extends Authenticatable implements MustVerifyEmail
         // hasOne(RelatedModel, foreignKeyOnRelatedModel = user_id, localKey = id)
         return $this->hasOne('App\Models\Cliente','id_usuario','id');
     }
+
+    /**
+     * Envia la notificacion de recuperacion de contraseña usando el flujo
+     * propio de clientes (correo en español que enlaza a /clientes/...),
+     * en lugar de la notificacion por defecto de Laravel.
+     */
+    public function sendPasswordResetNotification($token)
+    {
+        $this->notify(new \App\Notifications\ClienteRestablecerPassword($token));
+    }
 }

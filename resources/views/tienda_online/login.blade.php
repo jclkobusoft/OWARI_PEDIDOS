@@ -9,6 +9,11 @@
                     <div class="col-lg-6 col-sm-12 offset-lg-3 offset-md-3 col-md-6">
                         <div class="login-form mb-30">
                             <h2>Iniciar sesión</h2>
+                            @if (Session::has('status'))
+                                <div class="contact-info-box" style="background:#e8f5e9;border:1px solid #a5d6a7;color:#2e7d32;">
+                                    {{ Session::get('status') }}
+                                </div>
+                            @endif
                             @if (Session::has('message'))
                                 <div class="contact-info-box">
                                      <strong>¡Error!</strong>&nbsp;{{ Session::get('message') }}
@@ -37,7 +42,7 @@
                                     </div>
         
                                     <div class="col-lg-6 col-md-6 col-sm-6 lost-your-password">
-                                        <a href="#" class="lost-your-password">¿Olvidaste tu contraseña?</a>
+                                        <a href="{{ route('tienda_online.password.solicitar') }}" class="lost-your-password">¿Olvidaste tu contraseña?</a>
                                     </div>
                                 </div>
             

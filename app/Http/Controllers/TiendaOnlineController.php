@@ -208,6 +208,86 @@ class TiendaOnlineController extends Controller
         }
     }
 
+    // ---------------------------------------------------------------------
+    //  Recuperacion de contraseña por correo (solo clientes de la tienda)
+    // ---------------------------------------------------------------------
+
+    /** Formulario para solicitar el enlace de recuperacion (pide el correo). */
+    public function mostrarSolicitudReset()
+    {
+        $titulo = "Recuperar contraseña";
+        return view('tienda_online.password.solicitar', compact('titulo'));
+    }
+
+    /**
+     * Envia el correo con el enlace de restablecimiento. Se restringe a
+     * cuentas de cliente (cliente = true) para que el flujo de la tienda no
+     * afecte a usuarios internos. Siempre respondemos con el mismo mensaje
+     * para no revelar si un correo existe o no (evita enumeracion).
+     */
+    public function enviarLinkReset(Request $request)
+    {
+        $request->validate(['email' => 'required|email'], [
+            'email.required' => 'Escribe tu correo electrónico.',
+            'email.email'    => 'El correo electrónico no es válido.',
+        ]);
+
+        \Illuminate\Support\Facades\Password::broker()->sendResetLink([
+            'email'   => $request->email,
+            'cliente' => true,
+        ]);
+
+        \Session::flash('status', 'Si el correo está registrado, te enviamos un enlace para restablecer tu contraseña. Revisa tu bandeja de entrada y la carpeta de spam.');
+        return redirect()->route('tienda_online.password.solicitar');
+    }
+
+    /** Formulario para capturar la nueva contraseña (token en la URL). */
+    public function mostrarFormReset(Request $request, $token)
+    {
+        $titulo = "Restablecer contraseña";
+        $email  = $request->query('email', '');
+        return view('tienda_online.password.restablecer', compact('titulo', 'token', 'email'));
+    }
+
+    /** Aplica la nueva contraseña validando el token del correo. */
+    public function restablecerPassword(Request $request)
+    {
+        $request->validate([
+            'token'    => 'required',
+            'email'    => 'required|email',
+            'password' => 'required|min:6|confirmed',
+        ], [
+            'password.required'  => 'Escribe tu nueva contraseña.',
+            'password.min'       => 'La contraseña debe tener al menos 6 caracteres.',
+            'password.confirmed' => 'Las contraseñas no coinciden.',
+        ]);
+
+        $status = \Illuminate\Support\Facades\Password::broker()->reset(
+            [
+                'email'                 => $request->email,
+                'password'              => $request->password,
+                'password_confirmation' => $request->password_confirmation,
+                'token'                 => $request->token,
+                'cliente'               => true,
+            ],
+            function ($user, $password) {
+                $user->forceFill([
+                    'password'            => \Hash::make($password),
+                    'password_changed_at' => now(),
+                    'remember_token'      => \Illuminate\Support\Str::random(60),
+                ])->save();
+            }
+        );
+
+        if ($status === \Illuminate\Support\Facades\Password::PASSWORD_RESET) {
+            \Session::flash('status', 'Tu contraseña se actualizó correctamente. Ya puedes iniciar sesión.');
+            return redirect()->route('tienda_online.login');
+        }
+
+        \Session::flash('message', 'El enlace no es válido o ya expiró. Solicita uno nuevo.');
+        return redirect()->route('tienda_online.password.solicitar');
+    }
+
 
     /**
      * Pantalla informativa que ve el cliente cuando su cuenta esta suspendida.

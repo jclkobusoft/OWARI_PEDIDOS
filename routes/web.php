@@ -30,6 +30,12 @@ Route::get('/demo/factura', [App\Http\Controllers\HomeController::class, 'demoFa
 
 Route::get('/clientes/login', [App\Http\Controllers\TiendaOnlineController::class, 'login'])->name('tienda_online.login');
 Route::post('/clientes/login', [App\Http\Controllers\TiendaOnlineController::class, 'iniciarSesion'])->name('tienda_online.iniciar_sesion');
+// Recuperacion de contraseña por correo (clientes de la tienda en linea).
+Route::get('/clientes/recuperar-password', [App\Http\Controllers\TiendaOnlineController::class, 'mostrarSolicitudReset'])->name('tienda_online.password.solicitar');
+Route::post('/clientes/recuperar-password', [App\Http\Controllers\TiendaOnlineController::class, 'enviarLinkReset'])->middleware('throttle:6,1')->name('tienda_online.password.email');
+Route::get('/clientes/restablecer-password/{token}', [App\Http\Controllers\TiendaOnlineController::class, 'mostrarFormReset'])->name('tienda_online.password.form');
+Route::post('/clientes/restablecer-password', [App\Http\Controllers\TiendaOnlineController::class, 'restablecerPassword'])->middleware('throttle:6,1')->name('tienda_online.password.update');
+
 Route::get('/clientes/registro', [App\Http\Controllers\TiendaOnlineController::class, 'registro'])->name('tienda_online.registro');
 Route::get('/clientes/registro_nuevo', [App\Http\Controllers\TiendaOnlineController::class, 'registro_nuevo'])->name('tienda_online.registro_nuevo');
 Route::post('/clientes/registrar', [App\Http\Controllers\TiendaOnlineController::class, 'registrar'])->name('tienda_online.registrar');
