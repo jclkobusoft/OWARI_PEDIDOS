@@ -167,7 +167,7 @@
         </div>
     @endif
 
-    @if(\Request::route()->getName() != 'tienda_online.login' && \Request::route()->getName() != 'tienda_online.registro' && \Request::route()->getName() != 'tienda_online.registro_nuevo')
+    @if(!in_array(\Request::route()->getName(), ['tienda_online.login', 'tienda_online.registro', 'tienda_online.registro_nuevo', 'tienda_online.password.solicitar', 'tienda_online.password.form']))
         @include('tienda_online.base.menu')
     @endif
     <div class="container">
