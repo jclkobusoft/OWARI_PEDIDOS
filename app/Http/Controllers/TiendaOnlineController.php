@@ -2506,6 +2506,68 @@ class TiendaOnlineController extends Controller
         echo "</table>";
     }
 
+    // ---------------------------------------------------------------------
+    //  Carrito auxiliar (rapido): solo sesion, sin analisis de precios.
+    //  Cuando el carrito normal tarda por el analisis, el cliente ve aqui
+    //  su pedido (clave + cantidad), lo descarga en Excel y telemarketing
+    //  lo captura. Tambien permite vaciar todo.
+    // ---------------------------------------------------------------------
 
+    /**
+     * Junta el carrito normal y el especial en filas [clave, cantidad],
+     * sumando cantidades si una misma clave aparece repetida. Solo lee la
+     * sesion, asi que es instantaneo.
+     */
+    private function itemsCarritoRapido(): array
+    {
+        $porClave = [];
+        foreach (['cart', 'cartEspecial'] as $llave) {
+            $carrito = \Session::get($llave, []);
+            if (!is_array($carrito)) continue;
+            foreach ($carrito as $item) {
+                $clave = $item['numero_parte'] ?? null;
+                if ($clave === null || $clave === '') continue;
+                $porClave[$clave] = ($porClave[$clave] ?? 0) + (int) ($item['cantidad'] ?? 0);
+            }
+        }
+
+        $items = [];
+        foreach ($porClave as $clave => $cant) {
+            $items[] = ['clave' => $clave, 'cantidad' => $cant];
+        }
+        return $items;
+    }
+
+    /** Vista del carrito auxiliar (clave + cantidad, sin analisis). */
+    public function carritoRapido()
+    {
+        $titulo       = "Carrito rápido";
+        $items        = $this->itemsCarritoRapido();
+        $total_piezas = array_sum(array_column($items, 'cantidad'));
+        return view('tienda_online.carrito_rapido', compact('titulo', 'items', 'total_piezas'));
+    }
+
+    /** Descarga el carrito auxiliar como Excel (CLAVE, CANTIDAD). */
+    public function carritoRapidoExcel()
+    {
+        $items = $this->itemsCarritoRapido();
+
+        $filas = [['CLAVE', 'CANTIDAD']];
+        foreach ($items as $it) {
+            $filas[] = [$it['clave'], $it['cantidad']];
+        }
+
+        $nombre = 'carrito-' . \Auth::user()->clave_cliente . '-' . date('Ymd_His') . '.xlsx';
+        return \Maatwebsite\Excel\Facades\Excel::download(new \App\Exports\CarritoRapidoExport($filas), $nombre);
+    }
+
+    /** Vacia por completo el carrito (normal y especial) y regresa al aux. */
+    public function vaciarCarritoRapido()
+    {
+        \Session::put('cart', []);
+        \Session::put('cartEspecial', []);
+        \Session::flash('status', 'Tu carrito se vació correctamente.');
+        return redirect()->route('tienda_online.carrito_rapido');
+    }
 
 }

@@ -36,6 +36,9 @@
                     <li class="nav-item">
                         <a class="nav-link" href="{{ route('tienda_online.productos') }}?q=&p=1"><i class="bi bi-car-front"></i>&nbsp;Productos</a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ route('tienda_online.carrito_rapido') }}"><i class="bi bi-lightning-charge-fill"></i>&nbsp;Carrito rápido</a>
+                    </li>
                     @if(\Auth::user()->clave_cliente != "M014M")
                     <li class="nav-item">
                         <a class="nav-link" href="{{ route('tienda_online.pedidos') }}"><i class="bi bi-box-seam-fill"></i>&nbsp;Mis pedidos</a>

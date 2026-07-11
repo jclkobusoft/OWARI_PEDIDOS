@@ -118,6 +118,10 @@ Route::middleware(['auth', 'verified', 'cliente.suspendido'])->prefix('tienda_on
     Route::post('carrito/actualizar_especial', [App\Http\Controllers\TiendaOnlineController::class, 'actualizarCarritoEspecial'])->name('tienda_online.carrito_actualizar_especial');
     Route::get('carrito', [App\Http\Controllers\TiendaOnlineController::class, 'carrito'])->name('tienda_online.carrito');
     Route::get('carrito_aux', [App\Http\Controllers\TiendaOnlineController::class, 'carritoAux'])->name('tienda_online.carrito_aux');
+    // Carrito auxiliar rapido (solo clave + cantidad, sin analisis) + Excel + vaciar.
+    Route::get('carrito-rapido', [App\Http\Controllers\TiendaOnlineController::class, 'carritoRapido'])->name('tienda_online.carrito_rapido');
+    Route::get('carrito-rapido/excel', [App\Http\Controllers\TiendaOnlineController::class, 'carritoRapidoExcel'])->name('tienda_online.carrito_rapido_excel');
+    Route::post('carrito-rapido/vaciar', [App\Http\Controllers\TiendaOnlineController::class, 'vaciarCarritoRapido'])->name('tienda_online.carrito_rapido_vaciar');
     Route::post('carrito/guardar_pedido', [App\Http\Controllers\TiendaOnlineController::class, 'guardarPedido'])->name('tienda_online.guardar_pedido');
     Route::post('carrito/actualizar_folios', [App\Http\Controllers\TiendaOnlineController::class, 'actualizarFoliosEspejo'])->name('tienda_online.actualizar_folios');
     Route::post('carrito/verificar_duplicado', [App\Http\Controllers\TiendaOnlineController::class, 'verificarPedidoDuplicado'])->name('tienda_online.verificar_duplicado');
