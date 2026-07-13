@@ -8,13 +8,13 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Suspende los clientes (users.cliente = true) que tienen mas de 30 dias sin
+ * Suspende los clientes (users.cliente = true) que tienen mas de 60 dias sin
  * generar un pedido en la tienda en linea. Replica el query del negocio:
  *
  *   SELECT cliente, MAX(created_at) AS ultima_compra
  *   FROM pedidos_web
  *   GROUP BY cliente
- *   HAVING MAX(created_at) < CURRENT_DATE - INTERVAL '30 days'
+ *   HAVING MAX(created_at) < CURRENT_DATE - INTERVAL '60 days'
  *
  * Para cada cliente encontrado, marca users.cuenta_suspendida = true.
  *
@@ -34,11 +34,11 @@ use Illuminate\Support\Facades\Log;
  */
 class SuspenderClientesInactivos extends Command
 {
-    private const DIAS_GRACIA_REACTIVACION = 5;
+    private const DIAS_GRACIA_REACTIVACION = 15;
 
     protected $signature   = 'clientes:suspender-inactivos
                               {--dry-run : Solo lista los clientes a suspender, no actualiza}';
-    protected $description = 'Marca cuenta_suspendida=true en clientes con mas de 30 dias sin pedidos_web';
+    protected $description = 'Marca cuenta_suspendida=true en clientes con mas de 60 dias sin pedidos_web';
 
     public function handle(): int
     {
@@ -48,12 +48,12 @@ class SuspenderClientesInactivos extends Command
             ->select('cliente')
             ->whereNull('deleted_at')
             ->groupBy('cliente')
-            ->havingRaw('MAX(created_at) < CURRENT_DATE - INTERVAL \'30 days\'')
+            ->havingRaw('MAX(created_at) < CURRENT_DATE - INTERVAL \'60 days\'')
             ->pluck('cliente')
             ->all();
 
         if (empty($clavesInactivas)) {
-            $this->info('No hay clientes con mas de 30 dias sin pedidos.');
+            $this->info('No hay clientes con mas de 60 dias sin pedidos.');
             return self::SUCCESS;
         }
 

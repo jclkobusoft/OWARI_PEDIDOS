@@ -79,7 +79,7 @@ class ClientesController extends Controller
 
         // Detectar transicion del checkbox `cuenta_suspendida` para mantener
         // el timestamp `reactivated_at`. El cron de suspension usa ese campo
-        // para darle al cliente 5 dias de gracia desde su reactivacion antes
+        // para darle al cliente 15 dias de gracia desde su reactivacion antes
         // de volver a evaluarlo.
         $estabaSuspendido = (bool) $cliente->cuenta_suspendida;
         $ahoraSuspendido  = $r->has('cuenta_suspendida');
