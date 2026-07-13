@@ -122,6 +122,9 @@ Route::middleware(['auth', 'verified', 'cliente.suspendido'])->prefix('tienda_on
     Route::get('carrito-rapido', [App\Http\Controllers\TiendaOnlineController::class, 'carritoRapido'])->name('tienda_online.carrito_rapido');
     Route::get('carrito-rapido/excel', [App\Http\Controllers\TiendaOnlineController::class, 'carritoRapidoExcel'])->name('tienda_online.carrito_rapido_excel');
     Route::post('carrito-rapido/vaciar', [App\Http\Controllers\TiendaOnlineController::class, 'vaciarCarritoRapido'])->name('tienda_online.carrito_rapido_vaciar');
+    // Migracion del carrito viejo (sesion) al carrito nuevo (BD).
+    Route::get('carrito-anterior', [App\Http\Controllers\TiendaOnlineController::class, 'carritoAnterior'])->name('tienda_online.carrito_anterior');
+    Route::post('carrito-anterior/importar', [App\Http\Controllers\TiendaOnlineController::class, 'importarCarritoAnterior'])->name('tienda_online.carrito_anterior_importar');
     Route::post('carrito/guardar_pedido', [App\Http\Controllers\TiendaOnlineController::class, 'guardarPedido'])->name('tienda_online.guardar_pedido');
     Route::post('carrito/actualizar_folios', [App\Http\Controllers\TiendaOnlineController::class, 'actualizarFoliosEspejo'])->name('tienda_online.actualizar_folios');
     Route::post('carrito/verificar_duplicado', [App\Http\Controllers\TiendaOnlineController::class, 'verificarPedidoDuplicado'])->name('tienda_online.verificar_duplicado');
