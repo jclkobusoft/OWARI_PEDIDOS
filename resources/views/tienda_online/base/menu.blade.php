@@ -1,6 +1,9 @@
 @php
     // Conteo de productos del carrito (ahora persistido en BD, tabla carrito_items).
     $carritoCount = \Auth::check() ? (new \App\Services\CarritoService())->contar('normal') : 0;
+    // ¿El cliente aun tiene un carrito viejo en la sesion (previo al cambio a BD)?
+    // Si es asi, mostramos el boton para recuperarlo.
+    $tieneCarritoAnterior = count(session('cart', [])) > 0 || count(session('cartEspecial', [])) > 0;
 @endphp
 <div class="container">
     <nav class="navbar navbar-expand-lg bg-body-tertiary">
@@ -43,6 +46,11 @@
                     <li class="nav-item">
                         <a class="nav-link" href="{{ route('tienda_online.carrito_rapido') }}"><i class="bi bi-lightning-charge-fill"></i>&nbsp;Carrito rápido</a>
                     </li>
+                    @if($tieneCarritoAnterior)
+                    <li class="nav-item">
+                        <a class="nav-link text-danger fw-bold" href="{{ route('tienda_online.carrito_anterior') }}"><i class="bi bi-arrow-clockwise"></i>&nbsp;Recuperar carrito anterior</a>
+                    </li>
+                    @endif
                     @if(\Auth::user()->clave_cliente != "M014M")
                     <li class="nav-item">
                         <a class="nav-link" href="{{ route('tienda_online.pedidos') }}"><i class="bi bi-box-seam-fill"></i>&nbsp;Mis pedidos</a>

@@ -2604,4 +2604,93 @@ class TiendaOnlineController extends Controller
         return redirect()->route('tienda_online.carrito_rapido');
     }
 
+    // ---------------------------------------------------------------------
+    //  Migracion del carrito viejo (sesion) al carrito nuevo (BD).
+    //  Al pasar el carrito a base de datos, los productos que el cliente
+    //  tenia guardados en su sesion anterior siguen fisicamente ahi (las
+    //  llaves 'cart'/'cartEspecial') hasta que expire la sesion. Estas
+    //  funciones se los muestran y le permiten importarlos al carrito de BD
+    //  para que no pierda lo que habia acumulado.
+    // ---------------------------------------------------------------------
+
+    /** Lee el carrito viejo que quedo en la sesion (antes del cambio a BD). */
+    private function itemsCarritoAnterior(): array
+    {
+        $out = ['normal' => [], 'especial' => []];
+        foreach (['normal' => 'cart', 'especial' => 'cartEspecial'] as $tipo => $sesKey) {
+            $viejo = \Session::get($sesKey, []);
+            if (is_array($viejo)) {
+                foreach ($viejo as $it) {
+                    if (is_array($it) && !empty($it['numero_parte'])) {
+                        $out[$tipo][] = $it;
+                    }
+                }
+            }
+        }
+        return $out;
+    }
+
+    /** Pantalla que muestra las partidas del carrito viejo (sesion). */
+    public function carritoAnterior()
+    {
+        $titulo   = "Recuperar carrito anterior";
+        $anterior = $this->itemsCarritoAnterior();
+
+        // Aplanado clave+cantidad para mostrar (normal + especial juntos).
+        $items = [];
+        foreach (['normal', 'especial'] as $tipo) {
+            foreach ($anterior[$tipo] as $it) {
+                $items[] = [
+                    'clave'    => $it['numero_parte'],
+                    'cantidad' => (int) ($it['cantidad'] ?? 0),
+                    'tipo'     => $tipo,
+                ];
+            }
+        }
+
+        $total_piezas = array_sum(array_column($items, 'cantidad'));
+        return view('tienda_online.carrito_anterior', compact('titulo', 'items', 'total_piezas'));
+    }
+
+    /**
+     * Importa las partidas del carrito viejo (sesion) al carrito nuevo (BD),
+     * fusionandolas con lo que ya tenga en BD (suma cantidades por clave), y
+     * limpia la sesion vieja para que ya no vuelva a aparecer.
+     */
+    public function importarCarritoAnterior()
+    {
+        $svc      = $this->carritoSvc();
+        $anterior = $this->itemsCarritoAnterior();
+
+        foreach (['normal', 'especial'] as $tipo) {
+            $viejos = $anterior[$tipo];
+            if (empty($viejos)) continue;
+
+            // Indexar lo que ya hay en BD por clave.
+            $porClave = [];
+            foreach ($svc->obtener($tipo) as $it) {
+                if (!empty($it['numero_parte'])) $porClave[$it['numero_parte']] = $it;
+            }
+
+            // Fusionar los viejos: si ya existe la clave, suma cantidad; si no,
+            // se agrega tal cual (conserva su 'partida').
+            foreach ($viejos as $it) {
+                $clave = $it['numero_parte'];
+                if (isset($porClave[$clave])) {
+                    $porClave[$clave]['cantidad'] = (int) ($porClave[$clave]['cantidad'] ?? 0) + (int) ($it['cantidad'] ?? 0);
+                } else {
+                    $porClave[$clave] = $it;
+                }
+            }
+
+            $svc->guardar($tipo, array_values($porClave));
+        }
+
+        // La sesion vieja ya no se necesita.
+        \Session::forget(['cart', 'cartEspecial']);
+
+        \Session::flash('status', 'Tu carrito anterior se agregó correctamente a tu carrito.');
+        return redirect()->route('tienda_online.carrito');
+    }
+
 }
