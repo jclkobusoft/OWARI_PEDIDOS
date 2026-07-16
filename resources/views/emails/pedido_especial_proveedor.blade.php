@@ -6,6 +6,7 @@
     <title></title>
 </head>
 <body>
+    <p>Recibe un cordial saludo.</p>
     <h2>Nuevo pedido para surtir</h2>
     <p>Adjuntamos el pedido especial <b>#{{ $pedido->id }}</b> para <b>{{ $nombreProveedor }}</b>.</p>
     <p>Favor de darle seguimiento. Gracias.</p>
