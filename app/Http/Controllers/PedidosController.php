@@ -395,7 +395,7 @@ class PedidosController extends Controller
             $cfg = \DB::connection('owari_soma')->table('proveedores_especiales')
                 ->where('clave', $claveProveedor)
                 ->where('activo', true)
-                ->first(['correo', 'enviar_excel']);
+                ->first(['nombre', 'correo', 'enviar_excel']);
         } catch (\Throwable $e) {
             \Log::warning('proveedores_especiales correo/enviar_excel no disponible: ' . $e->getMessage());
             return;
@@ -407,18 +407,9 @@ class PedidosController extends Controller
         $destinos = array_values(array_filter(array_map('trim', explode(',', $cfg->correo))));
         if (empty($destinos)) return;
 
-        // Nombre del proveedor (proveedores.nombre_simple) para el encabezado
-        // dinamico "CLAVE <nombre>". Si no se encuentra, cae a la clave.
-        $nombreProveedor = $claveProveedor;
-        try {
-            $prov = \DB::connection('owari_soma')->table('proveedores')
-                ->where('clave', $claveProveedor)
-                ->whereNull('deleted_at')
-                ->first(['nombre_simple']);
-            if ($prov && !empty($prov->nombre_simple)) $nombreProveedor = $prov->nombre_simple;
-        } catch (\Throwable $e) {
-            // se queda con la clave
-        }
+        // Nombre para el encabezado dinamico "CLAVE <nombre>": el nombre comercial
+        // configurado en proveedores_especiales. Si esta vacio, cae a la clave.
+        $nombreProveedor = !empty($cfg->nombre) ? $cfg->nombre : $claveProveedor;
 
         // Excel reducido: mismo contenido del completo, solo las columnas pedidas.
         $reducido = [[
