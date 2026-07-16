@@ -72,6 +72,23 @@ class TiendaOnlineController extends Controller
         return (int) $cfg->stock_ficticio;
     }
 
+    /**
+     * Mapa [clave_proveedor => stock_ficticio] de los proveedores
+     * 'split_por_stock'. Se pasa a las vistas de listados (productos,
+     * favoritos, liquidacion) para sumar el stock ficticio de forma
+     * data-driven, sin hardcodear la clave (S227) ni la cantidad (+2).
+     */
+    private function mapaStockFicticio(): array
+    {
+        $mapa = [];
+        foreach ($this->obtenerProveedoresEspeciales() as $clave => $cfg) {
+            if (($cfg->tipo_separacion ?? null) === 'split_por_stock') {
+                $mapa[$clave] = (int) $cfg->stock_ficticio;
+            }
+        }
+        return $mapa;
+    }
+
 
     /** Acceso al carrito persistido en BD (tabla carrito_items, por cliente). */
     private function carritoSvc(): \App\Services\CarritoService
@@ -493,7 +510,8 @@ class TiendaOnlineController extends Controller
 
         $pagina = $p;
         $titulo = "Busqueda: " . ($q == "" ? "Todos" : $q) . " Pagina: " . $p;
-        return view('tienda_online.productos', compact('resultados', 'total_resultados', 'botones', 'busqueda', 'pagina', 'peticion', 'titulo', 'existencias', 'q'));
+        $stockFicticios = $this->mapaStockFicticio();
+        return view('tienda_online.productos', compact('resultados', 'total_resultados', 'botones', 'busqueda', 'pagina', 'peticion', 'titulo', 'existencias', 'q', 'stockFicticios'));
     }
 
 
@@ -931,7 +949,8 @@ class TiendaOnlineController extends Controller
             }
         }
 
-        return view('tienda_online.favoritos', compact('resultados', 'titulo'));
+        $stockFicticios = $this->mapaStockFicticio();
+        return view('tienda_online.favoritos', compact('resultados', 'titulo', 'stockFicticios'));
     }
 
     public function actualizarCarrito(Request $request)
@@ -2012,7 +2031,8 @@ class TiendaOnlineController extends Controller
 
         $pagina = $p;
         $titulo = "Liquidación Pagina: " . $p;
-        return view('tienda_online.productos_liquidacion', compact('resultados', 'total_resultados', 'botones', 'pagina', 'titulo'));
+        $stockFicticios = $this->mapaStockFicticio();
+        return view('tienda_online.productos_liquidacion', compact('resultados', 'total_resultados', 'botones', 'pagina', 'titulo', 'stockFicticios'));
 
 
     }

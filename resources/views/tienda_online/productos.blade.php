@@ -200,7 +200,9 @@
 
                                                                             $('.precio_real_{{ $key }}').html("$ "+parseFloat(precio * porcentaje).toFixed(2));
                                                                             var existenciaFinal = parseInt(obj.existencia);
-                                                                            if ('{{ $resultado->clave_proveedor ?? "" }}' === 'S227') existenciaFinal += 2;
+                                                                            // Stock ficticio data-driven (proveedores_especiales de SOMA),
+                                                                            // sin hardcodear la clave ni la cantidad.
+                                                                            existenciaFinal += {{ (int) ($stockFicticios[$resultado->clave_proveedor ?? ''] ?? 0) }};
                                                                             $('.existencia_real_{{ $key }}').html(existenciaFinal);
                                                                             $('.notas_precio_{{ $key }}').html(notas);
 
