@@ -77,17 +77,43 @@ class CarritoService
             $porClave[(string) $clave] = $it;
         }
 
-        DB::transaction(function () use ($uid, $tipo, $porClave) {
-            CarritoItem::where('user_id', $uid)->where('tipo', $tipo)->delete();
+        $claves = array_keys($porClave);
+
+        DB::transaction(function () use ($uid, $tipo, $porClave, $claves) {
+            // 1. Borrar solo los items de este tipo que YA NO estan en el carrito.
+            $borrar = CarritoItem::where('user_id', $uid)->where('tipo', $tipo);
+            if (!empty($claves)) {
+                $borrar->whereNotIn('numero_parte', $claves);
+            }
+            $borrar->delete();
+
+            if (empty($porClave)) return;
+
+            // 2. Upsert de los presentes: INSERT ... ON CONFLICT DO UPDATE. Es a
+            //    prueba de concurrencia — dos requests casi simultaneos del mismo
+            //    cliente (agregar productos rapido) ya no revientan la restriccion
+            //    unica (user_id,tipo,numero_parte); solo actualizan.
+            //    Nota: upsert no pasa por los casts, asi que 'datos' (jsonb) se
+            //    codifica a mano.
+            $now = now();
+            $filas = [];
             foreach ($porClave as $clave => $it) {
-                CarritoItem::create([
+                $filas[] = [
                     'user_id'      => $uid,
                     'tipo'         => $tipo,
                     'numero_parte' => (string) $clave,
                     'cantidad'     => (int) ($it['cantidad'] ?? 0),
-                    'datos'        => $it,
-                ]);
+                    'datos'        => json_encode($it),
+                    'created_at'   => $now,
+                    'updated_at'   => $now,
+                ];
             }
+
+            CarritoItem::upsert(
+                $filas,
+                ['user_id', 'tipo', 'numero_parte'],   // restriccion unica
+                ['cantidad', 'datos', 'updated_at']    // columnas a actualizar en conflicto
+            );
         });
     }
 
