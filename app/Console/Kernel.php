@@ -37,6 +37,13 @@ class Kernel extends ConsoleKernel
         //          ->dailyAt('10:00')
         //          ->withoutOverlapping();
 
+        // Envia el Excel reducido a los proveedores especiales (SYD, etc.) que
+        // tengan correo/enviar_excel en SOMA. Desacoplado del checkout para no
+        // colgar el guardado del pedido con un envio SMTP sincrono.
+        $schedule->command('especiales:enviar-excel-proveedor')
+                 ->everyFiveMinutes()
+                 ->withoutOverlapping();
+
         // Regenera el Excel de promociones globales de la tienda a las 02:00,
         // que el cliente descarga desde /tienda_online/promociones.xlsx.
         $schedule->command('promociones:generar-excel')
