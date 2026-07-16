@@ -349,6 +349,11 @@ class PedidosController extends Controller
                 $message->to(['direccion@owari.com.mx','ventas2@owari.com.mx','ventas3@owari.com.mx','compras@owari.com.mx']);
             });
 
+            // Envio ADICIONAL data-driven: si el proveedor especial tiene correo
+            // y el flag enviar_excel en SOMA (proveedores_especiales), se le manda
+            // un Excel REDUCIDO. No toca el correo de arriba (que sigue igual).
+            $this->enviarExcelReducidoProveedor($pedido, $clave_proveedor_especial, $arreglo);
+
 
             // Al insertar un pedido especial siempre se limpia cartEspecial,
             // sin importar el proveedor (incluido SYD) ni si el pedido normal
@@ -365,6 +370,85 @@ class PedidosController extends Controller
         ]);
 
 
+    }
+
+    /**
+     * Envio ADICIONAL para proveedores especiales: si en SOMA
+     * (proveedores_especiales) ese proveedor tiene `enviar_excel = true` y un
+     * `correo` configurado, le manda un Excel REDUCIDO del pedido especial
+     * (mismo contenido, recortado): CLIENTE, PEDIDO ESPECIAL, CLAVE, CANTIDAD y
+     * CLAVE <nombre_proveedor>. Es data-driven: aplica a cualquier proveedor
+     * especial con esa config, sin hardcodear claves.
+     *
+     * Defensivo: si las columnas aun no existen, SOMA falla, o no hay config,
+     * simplemente no manda nada y el flujo normal no se ve afectado.
+     *
+     * @param  array  $arreglo  El mismo arreglo del Excel completo (fila 0 =
+     *                          encabezados; filas siguientes = partidas assoc).
+     */
+    private function enviarExcelReducidoProveedor($pedido, ?string $claveProveedor, array $arreglo): void
+    {
+        if (empty($claveProveedor)) return;
+
+        // Config data-driven desde SOMA (misma tabla que stock_ficticio).
+        try {
+            $cfg = \DB::connection('owari_soma')->table('proveedores_especiales')
+                ->where('clave', $claveProveedor)
+                ->where('activo', true)
+                ->first(['correo', 'enviar_excel']);
+        } catch (\Throwable $e) {
+            \Log::warning('proveedores_especiales correo/enviar_excel no disponible: ' . $e->getMessage());
+            return;
+        }
+
+        if (!$cfg || empty($cfg->enviar_excel) || empty($cfg->correo)) return;
+
+        // Uno o varios correos separados por comas.
+        $destinos = array_values(array_filter(array_map('trim', explode(',', $cfg->correo))));
+        if (empty($destinos)) return;
+
+        // Nombre del proveedor (proveedores.nombre_simple) para el encabezado
+        // dinamico "CLAVE <nombre>". Si no se encuentra, cae a la clave.
+        $nombreProveedor = $claveProveedor;
+        try {
+            $prov = \DB::connection('owari_soma')->table('proveedores')
+                ->where('clave', $claveProveedor)
+                ->whereNull('deleted_at')
+                ->first(['nombre_simple']);
+            if ($prov && !empty($prov->nombre_simple)) $nombreProveedor = $prov->nombre_simple;
+        } catch (\Throwable $e) {
+            // se queda con la clave
+        }
+
+        // Excel reducido: mismo contenido del completo, solo las columnas pedidas.
+        $reducido = [[
+            'CLIENTE', 'PEDIDO ESPECIAL', 'CLAVE', 'CANTIDAD', 'CLAVE ' . $nombreProveedor,
+        ]];
+        foreach ($arreglo as $i => $row) {
+            if ($i === 0) continue; // fila de encabezados del arreglo completo
+            $reducido[] = [
+                $row['cliente'] ?? '',
+                $row['id_pedido'] ?? '',
+                $row['clave'] ?? '',
+                $row['cantidad'] ?? '',
+                $row['clave_proveedor'] ?? '',
+            ];
+        }
+
+        $archivo = date('YmdHis') . '_prov_' . $pedido->id . '.xlsx';
+        try {
+            Excel::store(new \App\Exports\PedidoEspecialProveedorExport($reducido), 'pedidos_especiales/' . $archivo);
+
+            \Mail::send('emails.pedido_especial_proveedor', ['pedido' => $pedido, 'nombreProveedor' => $nombreProveedor],
+                function ($message) use ($pedido, $archivo, $destinos, $nombreProveedor) {
+                    $message->from('pedido_especial@owari.com.mx', 'Pedido para surtir');
+                    $message->subject('Pedido para surtir ' . $nombreProveedor . ' #' . $pedido->id);
+                    $message->attach(storage_path() . '/app/pedidos_especiales/' . $archivo);
+                    $message->to($destinos);
+                });
+        } catch (\Throwable $e) {
+            \Log::warning('Envio de Excel reducido a proveedor fallo (pedido ' . $pedido->id . '): ' . $e->getMessage());
+        }
     }
 
     public function guardarPedidoPendienteWeb(Request $request){
