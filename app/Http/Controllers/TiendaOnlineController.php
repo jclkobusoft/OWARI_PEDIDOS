@@ -2044,6 +2044,188 @@ class TiendaOnlineController extends Controller
 
     }
 
+    // ---------------------------------------------------------------------
+    //  Regalo de LIQUIDACION (independiente del regalo de promo de SOMA).
+    //  El cliente elige 1 de hasta 3 productos de liquidacion cuyo precio
+    //  normal no exceda el 1% del subtotal (sin IVA) del pedido y que tengan
+    //  existencia real >= 1. Se agrega como partida normal de empresa 1 a
+    //  $0.01. Todo el filtro por precio es contra SOMA (cacheado); la
+    //  existencia usa el externo /productos-existencias-real (consistente con
+    //  el checkout).
+    // ---------------------------------------------------------------------
+
+    private const REGALO_MUESTRA = 12;   // claves por ronda al checar stock
+    private const REGALO_RONDAS  = 3;    // rondas maximas de muestreo
+
+    /**
+     * Lista cacheada de productos de liquidacion candidatos a regalo (SOMA):
+     * [ ['clave','precio_normal','descripcion','marca','clave_proveedor'], ... ]
+     */
+    private function listaLiquidacionRegalo(): array
+    {
+        return \Cache::remember('regalo_liquidacion_lista', now()->addMinutes(20), function () {
+            try {
+                $rows = $this->somaSelect("
+                    SELECT DISTINCT ON (p.clave)
+                        p.clave,
+                        COALESCE(ppr.precio, 0) as precio_normal,
+                        TRIM(CONCAT_WS(' ', pw.descripcion_1, pw.descripcion_2, pw.descripcion_3)) as descripcion,
+                        COALESCE(m.nombre, '') as marca,
+                        COALESCE(prov.clave, '') as clave_proveedor
+                    FROM productos_liquidacion pl
+                    JOIN productos p ON p.id = pl.id_producto AND p.deleted_at IS NULL
+                    LEFT JOIN productos_web pw ON p.id = pw.id_producto AND pw.deleted_at IS NULL
+                    LEFT JOIN marcas m ON p.id_marca = m.id AND m.deleted_at IS NULL
+                    LEFT JOIN productos_precios ppr ON p.id = ppr.id_producto AND ppr.id_lista_precios = 1 AND ppr.id_sucursal = 1 AND ppr.deleted_at IS NULL
+                    LEFT JOIN proveedores prov ON p.id_proveedor = prov.id AND prov.deleted_at IS NULL
+                    WHERE pl.deleted_at IS NULL
+                    ORDER BY p.clave
+                ");
+                return array_map(fn ($r) => (array) $r, $rows);
+            } catch (\Throwable $e) {
+                \Log::warning('listaLiquidacionRegalo fallo: ' . $e->getMessage());
+                return [];
+            }
+        });
+    }
+
+    /** Existencia real por lote (externo, consistente con el checkout). */
+    private function existenciasReales(array $claves): array
+    {
+        $claves = array_values(array_filter($claves));
+        if (empty($claves)) return [];
+        try {
+            $ch = curl_init();
+            curl_setopt_array($ch, [
+                CURLOPT_URL            => 'https://sistemasowari.com:8443/catalowari/api/productos-existencias-real?' . http_build_query(['productos' => $claves]),
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_SSL_VERIFYHOST => 0,
+                CURLOPT_SSL_VERIFYPEER => 0,
+                CURLOPT_TIMEOUT        => 25,
+            ]);
+            $body = curl_exec($ch);
+            curl_close($ch);
+            $data = json_decode($body, true);
+            return is_array($data) ? $data : [];
+        } catch (\Throwable $e) {
+            \Log::warning('existenciasReales fallo: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /** Candidatos por precio (<= 1% subtotal), excluyendo proveedores especiales. */
+    private function poolRegalo(float $umbral): array
+    {
+        $especiales = array_keys($this->obtenerProveedoresEspeciales());
+        $pool = [];
+        foreach ($this->listaLiquidacionRegalo() as $p) {
+            $pn = (float) ($p['precio_normal'] ?? 0);
+            if ($pn <= 0 || $pn > $umbral) continue;
+            if (!empty($p['clave_proveedor']) && in_array($p['clave_proveedor'], $especiales, true)) continue;
+            $pool[$p['clave']] = $p;
+        }
+        return $pool;
+    }
+
+    /**
+     * GET regalo/opciones?subtotal=<sin_iva>
+     * Devuelve hasta 3 productos de liquidacion que cumplen la regla y tienen
+     * stock real >= 1, o {regalo:false}.
+     */
+    public function regaloOpciones(Request $request)
+    {
+        $subtotal = (float) $request->query('subtotal', 0);
+        if ($subtotal <= 0) return response()->json(['regalo' => false]);
+
+        $umbral = $subtotal * 0.01;
+        $pool   = $this->poolRegalo($umbral);
+        if (empty($pool)) return response()->json(['regalo' => false]);
+
+        $keys = array_keys($pool);
+        shuffle($keys);
+
+        $conStock = [];
+        $offset   = 0;
+        $ronda    = 0;
+        while (count($conStock) < 3 && $offset < count($keys) && $ronda < self::REGALO_RONDAS) {
+            $muestra = array_slice($keys, $offset, self::REGALO_MUESTRA);
+            $offset += self::REGALO_MUESTRA;
+            $ronda++;
+            if (empty($muestra)) break;
+            $ex = $this->existenciasReales($muestra);
+            foreach ($muestra as $clave) {
+                if (count($conStock) >= 3) break;
+                if ((int) ($ex[$clave] ?? 0) >= 1) $conStock[$clave] = $pool[$clave];
+            }
+        }
+
+        if (empty($conStock)) return response()->json(['regalo' => false]);
+
+        $opciones = [];
+        foreach (array_slice(array_keys($conStock), 0, 3) as $clave) {
+            $p = $conStock[$clave];
+            $opciones[] = [
+                'clave'         => $p['clave'],
+                'descripcion'   => $p['descripcion'] ?? '',
+                'marca'         => $p['marca'] ?? '',
+                'precio_normal' => round((float) ($p['precio_normal'] ?? 0), 2),
+            ];
+        }
+
+        return response()->json(['regalo' => true, 'opciones' => $opciones]);
+    }
+
+    /**
+     * GET regalo/validar?clave=&subtotal=<sin_iva>
+     * Revalida el regalo elegido (en liquidacion, <=1%, no especial, stock>=1)
+     * y devuelve la partida lista para inyectar al pedido (empresa 1, $0.01).
+     */
+    public function regaloValidar(Request $request)
+    {
+        $clave    = trim((string) $request->query('clave', ''));
+        $subtotal = (float) $request->query('subtotal', 0);
+        if ($clave === '' || $subtotal <= 0) return response()->json(['ok' => false, 'motivo' => 'parametros']);
+
+        $umbral = $subtotal * 0.01;
+
+        $cand = null;
+        foreach ($this->listaLiquidacionRegalo() as $p) {
+            if ($p['clave'] === $clave) { $cand = $p; break; }
+        }
+        if (!$cand) return response()->json(['ok' => false, 'motivo' => 'no_liquidacion']);
+
+        $pn = (float) ($cand['precio_normal'] ?? 0);
+        if ($pn <= 0 || $pn > $umbral) return response()->json(['ok' => false, 'motivo' => 'precio']);
+
+        $especiales = array_keys($this->obtenerProveedoresEspeciales());
+        if (!empty($cand['clave_proveedor']) && in_array($cand['clave_proveedor'], $especiales, true)) {
+            return response()->json(['ok' => false, 'motivo' => 'especial']);
+        }
+
+        $ex = $this->existenciasReales([$clave]);
+        if ((int) ($ex[$clave] ?? 0) < 1) return response()->json(['ok' => false, 'motivo' => 'sin_stock']);
+
+        // Partida con la MISMA forma que consultarRegalo (para que fluya por
+        // clasificacion.factura -> SAE como empresa 1 a $0.01).
+        return response()->json([
+            'ok'      => true,
+            'partida' => [
+                'codigo'              => $clave,
+                'descripcion'         => $cand['descripcion'] ?: 'Regalo liquidacion',
+                'cantidad'            => 1,
+                'precio'              => '0.01',
+                'precio_iva'          => '0.01',
+                'total'               => '0.01',
+                'existencia_sae'      => 999,
+                'existencia_factura'  => 999,
+                'existencia_remision' => -1,
+                'clave_proveedor'     => '',
+                'es_regalo'           => true,
+                'es_regalo_liquidacion' => true,
+            ],
+        ]);
+    }
+
 
     public function pantallaLiquidaciones()
     {

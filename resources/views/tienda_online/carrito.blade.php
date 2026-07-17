@@ -845,7 +845,7 @@
 
             var pedidoEnviado = false;
 
-            $("#guardar").click(function(event) {
+            $("#guardar").click(async function(event) {
                 // Fase 12: el click ahora invoca el flujo v2 (orquestador
                 // async/await con cola de retry, regalos via SOMA,
                 // abstraccion de proveedores especiales y guard CLIE03).
@@ -858,8 +858,122 @@
                 if (pedidoEnviado) return false;
                 if (!validarFormulario()) return false;
                 pedidoEnviado = true;
+                // Regalo de LIQUIDACION: si aplica, muestra el popup (elige 1 de 3)
+                // y deja el elegido en window.regaloLiquidacion para que
+                // guardar_pedido_v2 lo inyecte a factura. Nunca bloquea el pedido:
+                // si algo falla, se procede sin regalo.
+                try { await manejarRegaloLiquidacion(); }
+                catch (e) { console.warn('regalo liquidacion:', e); window.regaloLiquidacion = null; }
                 guardar_pedido_v2();
             });
+
+            // ===================== Regalo de LIQUIDACION =====================
+            // Independiente del regalo de promo de SOMA (consultarRegalo). El
+            // cliente elige 1 de hasta 3 productos de liquidacion cuyo precio
+            // normal <= 1% del subtotal SIN IVA y con existencia real >= 1.
+            window.regaloLiquidacion = null;
+
+            // fetch con timeout para que el regalo NUNCA cuelgue el checkout.
+            function fetchRegalo(url) {
+                var ctrl = new AbortController();
+                var t = setTimeout(function () { ctrl.abort(); }, 12000);
+                return fetch(url, { headers: { 'Accept': 'application/json' }, signal: ctrl.signal })
+                    .finally(function () { clearTimeout(t); });
+            }
+
+            function subtotalSinIvaRegalo() {
+                var s = 0;
+                (partidas_finales || []).forEach(function (p) {
+                    s += (parseFloat(p.precio_iva) || 0) * (parseInt(p.cantidad) || 0);
+                });
+                (partidas_especiales_finales || []).forEach(function (p) {
+                    s += (parseFloat(p.precio_iva) || 0) * (parseInt(p.cantidad) || 0);
+                });
+                return s;
+            }
+
+            function crearOverlayRegalo() {
+                var ov = document.createElement('div');
+                ov.style.cssText = 'position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.7);padding:16px;';
+                var box = document.createElement('div');
+                box.style.cssText = 'background:#fff;border-radius:12px;max-width:660px;width:100%;max-height:92vh;overflow:auto;padding:22px;text-align:center;';
+                ov.appendChild(box);
+                document.body.appendChild(ov);
+                return { ov: ov, box: box };
+            }
+            function setOverlayLoader(o, texto) {
+                o.box.innerHTML = '<div style="padding:26px 10px;font-size:15px;color:#333;">' + texto + '</div>';
+            }
+            function cerrarOverlayRegalo(o) { try { document.body.removeChild(o.ov); } catch (e) {} }
+
+            // Llena el overlay con las opciones y resuelve con la clave elegida
+            // o null si el cliente elige "ningun producto".
+            function esperarEleccionRegalo(o, opciones) {
+                return new Promise(function (resolve) {
+                    var html = '<h4 style="margin:0 0 4px;">🎁 ¡Tienes un regalo!</h4>' +
+                        '<p style="font-size:13px;color:#666;margin:0 0 14px;">Elige un producto de regalo para tu pedido. Se agrega a tu compra por $0.01.</p>' +
+                        '<div style="display:flex;flex-wrap:wrap;gap:10px;justify-content:center;">';
+                    opciones.forEach(function (op) {
+                        var clave = String(op.clave || '');
+                        html += '<div class="regalo-opt" data-clave="' + encodeURIComponent(clave) + '" ' +
+                            'style="flex:1 1 180px;max-width:200px;border:2px solid #e0e0e0;border-radius:10px;padding:12px;cursor:pointer;transition:border-color .15s;" ' +
+                            'onmouseover="this.style.borderColor=\'#2b3991\'" onmouseout="this.style.borderColor=\'#e0e0e0\'">' +
+                            '<div style="font-weight:700;font-size:14px;word-break:break-word;">' + clave + '</div>' +
+                            '<div style="font-size:12px;color:#555;margin:5px 0;min-height:34px;">' + (op.descripcion || '') + '</div>' +
+                            '<div style="font-size:11px;color:#888;">' + (op.marca || '') + '</div>' +
+                            '<div style="margin-top:8px;font-weight:700;color:#2e7d32;">GRATIS</div>' +
+                            '</div>';
+                    });
+                    html += '</div>' +
+                        '<button type="button" class="regalo-ninguno" ' +
+                        'style="margin-top:16px;background:#eee;border:none;border-radius:50px;padding:10px 22px;cursor:pointer;">Ningún producto</button>';
+                    o.box.innerHTML = html;
+
+                    o.box.querySelectorAll('.regalo-opt').forEach(function (el) {
+                        el.addEventListener('click', function () {
+                            resolve(decodeURIComponent(el.getAttribute('data-clave')));
+                        });
+                    });
+                    o.box.querySelector('.regalo-ninguno').addEventListener('click', function () { resolve(null); });
+                });
+            }
+
+            async function manejarRegaloLiquidacion() {
+                window.regaloLiquidacion = null;
+                var subtotal = subtotalSinIvaRegalo();
+                if (!(subtotal > 0)) return;
+
+                var o = crearOverlayRegalo();
+                setOverlayLoader(o, 'Buscando un regalo para ti…');
+
+                var data = null;
+                try {
+                    var resp = await fetchRegalo(
+                        "{{ route('tienda_online.regalo_opciones') }}?subtotal=" + encodeURIComponent(subtotal.toFixed(2))
+                    );
+                    data = resp.ok ? await resp.json() : null;
+                } catch (e) { data = null; }
+
+                if (!data || !data.regalo || !Array.isArray(data.opciones) || data.opciones.length === 0) {
+                    cerrarOverlayRegalo(o);
+                    return;
+                }
+
+                var clave = await esperarEleccionRegalo(o, data.opciones);
+                if (!clave) { cerrarOverlayRegalo(o); return; } // "ningun producto"
+
+                setOverlayLoader(o, 'Agregando tu regalo…');
+                try {
+                    var v = await fetchRegalo(
+                        "{{ route('tienda_online.regalo_validar') }}?clave=" + encodeURIComponent(clave) +
+                        "&subtotal=" + encodeURIComponent(subtotal.toFixed(2))
+                    );
+                    var vd = await v.json();
+                    if (vd && vd.ok && vd.partida) window.regaloLiquidacion = vd.partida;
+                } catch (e) { window.regaloLiquidacion = null; }
+                cerrarOverlayRegalo(o);
+            }
+            // ================================================================
 
             (function verificarDuplicado() {
                 var claves = [];
@@ -991,6 +1105,13 @@
                     if (clasificacion.factura.length > 0) {
                         regalo = await consultarRegalo(cliente);
                         if (regalo) clasificacion.factura.push(regalo);
+
+                        // Regalo de LIQUIDACION elegido por el cliente en el popup
+                        // (independiente del de promo de SOMA). Tambien acompaña
+                        // una venta real en E01, por eso va dentro de este if.
+                        if (window.regaloLiquidacion) {
+                            clasificacion.factura.push(window.regaloLiquidacion);
+                        }
                     }
 
                     // 7. Crear el espejo local en pedidos_web ANTES de tocar SAE,

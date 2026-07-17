@@ -138,6 +138,10 @@ Route::middleware(['auth', 'verified', 'cliente.suspendido'])->prefix('tienda_on
     // Excel de promociones globales, generado por el cron diario (2am).
     Route::get('promociones.xlsx', [App\Http\Controllers\TiendaOnlineController::class, 'promocionesExcel'])->name('tienda_online.promociones_excel');
     Route::get('liquidacion', [App\Http\Controllers\TiendaOnlineController::class, 'liquidacion'])->name('tienda_online.liquidacion');
+    // Regalo de liquidacion: opciones (3 productos bajo 1% del total con stock)
+    // y validacion del elegido. Independiente del regalo de promo de SOMA.
+    Route::get('regalo/opciones', [App\Http\Controllers\TiendaOnlineController::class, 'regaloOpciones'])->name('tienda_online.regalo_opciones');
+    Route::get('regalo/validar', [App\Http\Controllers\TiendaOnlineController::class, 'regaloValidar'])->name('tienda_online.regalo_validar');
     Route::get('vaciar_carrito', [App\Http\Controllers\TiendaOnlineController::class, 'vaciarCarrito'])->name('tienda_online.vaciar_carrito');
     Route::get('editar_cliente', [App\Http\Controllers\TiendaOnlineController::class, 'editarCliente'])->name('tienda_online.editar_cliente');
     Route::post('actualizar_password', [App\Http\Controllers\TiendaOnlineController::class, 'actualizarPassword'])->name('tienda_online.actualizar_password');
