@@ -1965,16 +1965,23 @@ class TiendaOnlineController extends Controller
 
         extract($request->all());
         $titulo = "Liquidaciones";
-        $url = 'https://sistemasowari.com:8443/catalowari/api/liquidacion';
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_HEADER, 0);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0);
-        $data = curl_exec($ch);
-        curl_close($ch);
-        $data = json_decode($data, true);
+
+        // La lista de liquidacion ahora se administra en SOMA (tabla productos_liquidacion),
+        // ya NO se consume la API externa catalowari. Traemos las claves activas.
+        // Defensivo: si la tabla aun no existe (SQL no aplicado), mostramos vacio en vez de romper.
+        try {
+            $filasLiquidacion = $this->somaSelect("
+                SELECT p.clave
+                FROM productos_liquidacion pl
+                JOIN productos p ON p.id = pl.id_producto AND p.deleted_at IS NULL
+                WHERE pl.deleted_at IS NULL
+                ORDER BY pl.created_at DESC
+            ");
+            $data = array_map(fn($f) => $f->clave, $filasLiquidacion);
+        } catch (\Throwable $e) {
+            \Log::warning('productos_liquidacion no disponible: ' . $e->getMessage());
+            $data = [];
+        }
 
         if (!empty($data)) {
             $placeholders = implode(',', array_fill(0, count($data), '?'));
