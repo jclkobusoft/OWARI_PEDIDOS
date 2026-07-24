@@ -268,6 +268,10 @@ class PedidosController extends Controller
 
 
         $gran_total = 0;
+        // Candidatas para la cola de envio agrupado de SOMA
+        // (pedidos_especiales_partidas_envio). Se filtran mas abajo: las de
+        // proveedores especiales con envio inmediato por correo NO se encolan.
+        $filasEnvio = [];
         $arreglo = [[
             'CLIENTE',
             'PEDIDO ESPECIAL',
@@ -291,7 +295,11 @@ class PedidosController extends Controller
             // el fallback de abajo pone 'SIN CLAVE', pero el nombre del
             // proveedor (prov.clave) igual se resuelve por p.id_proveedor.
             $provInfo = \DB::connection('owari_soma')->select("
-                SELECT pp.clave_proveedor, prov.clave as proveedor
+                SELECT pp.clave_proveedor,
+                       prov.clave as proveedor,
+                       prov.id    as id_proveedor,
+                       p.id       as id_producto,
+                       TRIM(CONCAT_WS(' ', pw.descripcion_1, pw.descripcion_2, pw.descripcion_3)) as descripcion
                 FROM productos p
                 LEFT JOIN proveedores prov
                        ON prov.id = p.id_proveedor
@@ -299,6 +307,9 @@ class PedidosController extends Controller
                        ON pp.id_producto  = p.id
                       AND pp.id_proveedor = p.id_proveedor
                       AND pp.deleted_at IS NULL
+                LEFT JOIN productos_web pw
+                       ON pw.id_producto = p.id
+                      AND pw.deleted_at IS NULL
                 WHERE p.clave = ? AND p.deleted_at IS NULL
                 LIMIT 1
             ", [$value['codigo']]);
@@ -323,11 +334,47 @@ class PedidosController extends Controller
                 'sae' => $value['sae'] ?? '',
                 'elaboro' => $elaboro
             ]);
-            PedidoEspecialPartida::create($data);
+            $partidaCreada = PedidoEspecialPartida::create($data);
+
+            // Candidata a la cola de envio agrupado de SOMA. El proveedor es el
+            // PRINCIPAL del producto (mismo criterio que el Excel). Si el
+            // producto no tiene proveedor resuelto en SOMA se marca para que
+            // sea visible allá en vez de perderse.
+            $filasEnvio[] = [
+                'clave_proveedor_sistema' => ($provData && !empty($provData->proveedor)) ? $provData->proveedor : 'SIN PROVEEDOR',
+                'id_proveedor'            => $provData->id_proveedor ?? null,
+                'clave_owari'             => $value['codigo'],
+                'id_producto'             => $provData->id_producto ?? null,
+                'clave_proveedor'         => $provData->clave_proveedor ?? null,
+                'descripcion'             => ($provData && !empty($provData->descripcion))
+                                                ? $provData->descripcion
+                                                : ($value['descripcion'] ?? null),
+                'cantidad_solicitada'     => floatval($value['cantidad']),
+                'precio_unitario'         => floatval($value['precio']),
+                'total'                   => floatval($value['total']),
+                'id_partida_origen'       => $partidaCreada->id,
+                'existencia_sae'          => $value['sae'] ?? null,
+                'observaciones'           => ($provData && !empty($provData->proveedor))
+                                                ? null
+                                                : 'Producto sin proveedor principal en SOMA',
+            ];
+
             $gran_total+=$value['total'];
         }
 
         $pedido->fill(['gran_total' => floatval($gran_total)])->save();
+
+        // Encolar en SOMA las partidas que NO son de proveedores con envio
+        // inmediato por correo (esas ya se mandan al generarse el pedido).
+        // Cubre carrito y telemarketing: ambos entran por este mismo endpoint.
+        $this->encolarPartidasEnvioSoma(
+            $pedido,
+            $filasEnvio,
+            $r->has('carrito') ? 'carrito' : 'telemarketing',
+            $clave_cliente,
+            is_array($info_cliente) ? ($info_cliente['NOMBRE'] ?? null) : null,
+            $elaboro
+        );
 
         $archivo = date('YmdHis').".xlsx";
         $archivo_excel = "pedidos_especiales/".$archivo;
@@ -370,6 +417,86 @@ class PedidosController extends Controller
         ]);
 
 
+    }
+
+    /**
+     * Encola en SOMA (pedidos_especiales_partidas_envio) las partidas del
+     * pedido especial para que SOMA las AGRUPE y las mande al proveedor en su
+     * corrida periodica.
+     *
+     * Se EXCLUYE el pedido completo cuando su proveedor de grupo ya recibe el
+     * correo de forma inmediata (proveedores_especiales con enviar_excel = true
+     * y correo, p.ej. SYD/S227): ese pedido ya se envio al generarse, y
+     * encolarlo provocaria un envio duplicado.
+     *
+     * El criterio es a nivel PEDIDO (no por partida) porque el correo inmediato
+     * se manda por pedido especial completo segun su clave_proveedor de grupo:
+     * o se enviaron todas sus partidas, o ninguna. Asi ninguna partida queda
+     * sin correo y sin encolar.
+     *
+     * Aplica igual a carrito y telemarketing (ambos usan guardarPedidoEspecial).
+     *
+     * Defensivo: si SOMA no responde o la config no se puede leer, NO encola
+     * nada (fail-closed, para no arriesgar duplicados) y solo deja un warning.
+     * Nunca rompe el guardado del pedido.
+     */
+    private function encolarPartidasEnvioSoma($pedido, array $filas, string $sistemaOrigen, string $claveCliente, ?string $nombreCliente, string $elaboro): void
+    {
+        if (empty($filas)) return;
+
+        // Proveedores con envio inmediato por correo = los que hay que excluir.
+        // Mismo criterio que enviarExcelReducidoProveedor(), para que lo que se
+        // manda al instante y lo que se agrupa nunca se traslapen.
+        try {
+            $cfg = \DB::connection('owari_soma')->table('proveedores_especiales')
+                ->where('activo', true)
+                ->get(['clave', 'correo', 'enviar_excel']);
+        } catch (\Throwable $e) {
+            \Log::warning('encolarPartidasEnvioSoma: no se pudo leer proveedores_especiales, no se encola nada: ' . $e->getMessage());
+            return;
+        }
+
+        $envioInmediato = [];
+        foreach ($cfg as $c) {
+            if (!empty($c->enviar_excel) && trim((string) $c->correo) !== '') {
+                $envioInmediato[] = $c->clave;
+            }
+        }
+
+        // Si el grupo de este pedido ya recibio el correo inmediato, no se
+        // encola nada (evita el envio duplicado).
+        $grupo = $pedido->clave_proveedor;
+        if (!empty($grupo) && in_array($grupo, $envioInmediato, true)) {
+            \Log::info('encolarPartidasEnvioSoma: omitido, el proveedor ya recibe correo inmediato', [
+                'pedido_especial' => $pedido->id, 'proveedor' => $grupo, 'partidas' => count($filas),
+            ]);
+            return;
+        }
+
+        $porEncolar = [];
+        foreach ($filas as $f) {
+            $porEncolar[] = array_merge($f, [
+                'sistema_origen' => $sistemaOrigen,
+                'folio_origen'   => (string) $pedido->id,
+                'clave_cliente'  => $claveCliente,
+                'nombre_cliente' => $nombreCliente,
+                'elaboro'        => $elaboro,
+                'estatus'        => 'pendiente',
+                'created_at'     => now(),
+                'updated_at'     => now(),
+            ]);
+        }
+
+        try {
+            \DB::connection('owari_soma')->table('pedidos_especiales_partidas_envio')->insert($porEncolar);
+            \Log::info('encolarPartidasEnvioSoma', [
+                'pedido_especial' => $pedido->id,
+                'origen'          => $sistemaOrigen,
+                'encoladas'       => count($porEncolar),
+            ]);
+        } catch (\Throwable $e) {
+            \Log::warning('encolarPartidasEnvioSoma: insert fallo (pedido ' . $pedido->id . '): ' . $e->getMessage());
+        }
     }
 
     /**
