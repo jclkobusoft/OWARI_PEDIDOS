@@ -1,7 +1,9 @@
 @if(!empty($flyers))
-{{-- Modal de flyers: por visita muestra 1 slide (escritorio 2x2 = 4 flyers, movil apilados = 2).
-     Rota sin repetir usando una cookie con los IDs ya mostrados; al agotar los ~120 reinicia.
-     Se muestra SIEMPRE al cargar la pagina (cada carga avanza al siguiente lote). Orden fijo (el backend ya ordena por 'orden'). --}}
+{{-- Modal de flyers: muestra 1 slide (escritorio 2x2 = 4 flyers, movil apilados = 2).
+     Se muestra UNA VEZ AL DIA (cookie 'flyers_dia' con la fecha): la primera vez que
+     el cliente entra al dashboard ese dia. Las demas entradas del mismo dia no lo abren.
+     Rota sin repetir usando la cookie 'flyers_vistos' con los IDs ya mostrados; al
+     agotar los ~120 reinicia. Orden fijo (el backend ya ordena por 'orden'). --}}
 <style>
     #flyers-overlay { position:fixed; inset:0; z-index:99999; display:none; align-items:center; justify-content:center;
         background:rgba(0,0,0,0.82); backdrop-filter:blur(3px); -webkit-backdrop-filter:blur(3px); padding:18px; }
@@ -57,6 +59,14 @@
     function getCookie(name) { var m = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)'); return m ? m.pop() : ''; }
     function setCookie(name, val, dias) { var d = new Date(); d.setTime(d.getTime() + dias * 86400000); document.cookie = name + '=' + val + '; expires=' + d.toUTCString() + '; path=/'; }
 
+    // UNA VEZ AL DIA: si ya se mostro hoy, no volvemos a abrirlo. La salida es
+    // ANTES de tocar la rotacion para no "quemar" flyers sin que los vea.
+    var h = new Date();
+    var claveHoy = h.getFullYear() + '-' +
+                   ('0' + (h.getMonth() + 1)).slice(-2) + '-' +
+                   ('0' + h.getDate()).slice(-2);
+    if (getCookie('flyers_dia') === claveHoy) return;
+
     // IDs ya mostrados (rotacion sin repetir)
     var vistos = (getCookie('flyers_vistos') || '').split(',').filter(Boolean);
     var noVistos = FLYERS.filter(function (f) { return vistos.indexOf(String(f.id)) === -1; });
@@ -67,9 +77,10 @@
     var lote = noVistos.slice(0, N); // orden fijo (el backend ya viene ordenado)
     if (lote.length === 0) return;
 
-    // Registrar los mostrados (cookie 1 año) + marcar la visita
+    // Registrar los mostrados (cookie 1 año) + marcar que hoy ya se mostro
     lote.forEach(function (f) { vistos.push(String(f.id)); });
     setCookie('flyers_vistos', vistos.join(','), 365);
+    setCookie('flyers_dia', claveHoy, 365);
 
     // Pintar las celdas del lote (solo estas imagenes se cargan)
     lote.forEach(function (f) {
