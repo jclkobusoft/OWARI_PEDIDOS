@@ -72,13 +72,19 @@ class PedidosController extends Controller
                 COALESCE(ppr.precio, 0) as precio_normal,
                 pb.buscador,
                 p.id as producto_id,
-                COALESCE(prov.clave, '') as clave_proveedor
+                COALESCE(prov.clave, '') as clave_proveedor,
+                -- Stock que tiene el proveedor externo (KIMS), sincronizado por SOMA.
+                -- Va APARTE de la existencia de SAE: no se suma nunca, porque esa
+                -- mercancia no es nuestra y su partida se va a pedido especial.
+                COALESCE(CASE WHEN pse.estado = 'ok' THEN pse.existencia ELSE 0 END, 0) as stock_externo,
+                (pse.id IS NOT NULL) as tiene_proveedor_externo
             FROM productos_busqueda pb
             INNER JOIN productos p ON pb.producto_id = p.id
             LEFT JOIN productos_web pw ON p.id = pw.id_producto AND pw.deleted_at IS NULL
             LEFT JOIN marcas m ON p.id_marca = m.id AND m.deleted_at IS NULL
             LEFT JOIN productos_precios ppr ON p.id = ppr.id_producto AND ppr.id_lista_precios = 1 AND ppr.id_sucursal = 1 AND ppr.deleted_at IS NULL
             LEFT JOIN proveedores prov ON p.id_proveedor = prov.id AND prov.deleted_at IS NULL
+            LEFT JOIN productos_stock_externo pse ON pse.id_producto = p.id AND pse.deleted_at IS NULL
             WHERE {$whereClause}
             ORDER BY COALESCE(p.prioridad, 0) DESC NULLS LAST
         ", $bindings);

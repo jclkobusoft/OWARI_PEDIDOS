@@ -176,10 +176,14 @@
                                                                             } else {precio = obj.descuentos[0].precio_lista;precio_iva = obj.descuentos[0].precio_iva; }
 
                                                                             $('.precio_real_{{ $key }}').html("$ "+parseFloat(precio * porcentaje).toFixed(2));
-                                                                            var existenciaFinal = parseInt(obj.existencia);
+                                                                            var existenciaFinal = parseInt(obj.existencia) || 0;
                                                                             // Stock ficticio data-driven (proveedores_especiales de SOMA),
                                                                             // sin hardcodear la clave ni la cantidad.
                                                                             existenciaFinal += {{ (int) ($stockFicticios[$resultado->clave_proveedor ?? ''] ?? 0) }};
+                                                                            // Stock que tiene el proveedor externo (KIMS), sincronizado por SOMA.
+                                                                            // Aqui es solo para mostrar disponibilidad: estos productos no estan en
+                                                                            // SAE, asi que su partida se va a pedido especial.
+                                                                            existenciaFinal += {{ (int) (($stockExterno ?? [])[$resultado->codigo_nikko ?? ''] ?? 0) }};
                                                                             $('.existencia_real_{{ $key }}').html(existenciaFinal);
                                                                             $('.notas_precio_{{ $key }}').html(notas);
 

@@ -90,6 +90,51 @@ class TiendaOnlineController extends Controller
     }
 
 
+    /**
+     * Mapa [clave_producto => existencia] del stock que vive en la plataforma de un
+     * proveedor externo (KIMS, etc.), que SOMA mantiene sincronizado en
+     * `productos_stock_externo`.
+     *
+     * OJO — este stock NO es nuestro: la mercancia esta con el proveedor. Por eso:
+     *   - NUNCA se suma a `existencia_sae`: esa parte es la que se factura/remisiona
+     *     desde nuestro almacen. Sumarlo haria que SAE intente facturar piezas que no
+     *     tenemos y rechace la partida.
+     *   - Va SIEMPRE a pedido especial, que ya es lo que ocurre con estos productos
+     *     porque no existen en SAE (obj.cliente == "N/A").
+     * Sirve para dos cosas: mostrarle disponibilidad al cliente y TOPAR cuanto puede
+     * pedir (no se puede comprometer mas de lo que el proveedor tiene).
+     *
+     * Una sola query para todas las claves de la pagina (no una por producto).
+     * Si SOMA no responde devuelve [] y la tienda sigue funcionando igual que hoy.
+     */
+    private function mapaStockExterno(array $claves): array
+    {
+        $claves = array_values(array_unique(array_filter(array_map('trim', $claves))));
+        if (empty($claves)) return [];
+
+        try {
+            $rows = \DB::connection('owari_soma')
+                ->table('productos_stock_externo as pse')
+                ->join('productos as p', 'p.id', '=', 'pse.id_producto')
+                ->whereNull('pse.deleted_at')
+                ->whereNull('p.deleted_at')
+                ->where('pse.estado', 'ok')
+                ->where('pse.existencia', '>', 0)
+                ->whereIn('p.clave', $claves)
+                ->get(['p.clave', 'pse.existencia']);
+
+            $mapa = [];
+            foreach ($rows as $r) {
+                // Si un producto estuviera en dos plataformas, se acumulan.
+                $mapa[$r->clave] = ($mapa[$r->clave] ?? 0) + (int) $r->existencia;
+            }
+            return $mapa;
+        } catch (\Throwable $e) {
+            \Log::warning('mapaStockExterno fallo: ' . $e->getMessage());
+            return [];
+        }
+    }
+
     /** Acceso al carrito persistido en BD (tabla carrito_items, por cliente). */
     private function carritoSvc(): \App\Services\CarritoService
     {
@@ -511,7 +556,8 @@ class TiendaOnlineController extends Controller
         $pagina = $p;
         $titulo = "Busqueda: " . ($q == "" ? "Todos" : $q) . " Pagina: " . $p;
         $stockFicticios = $this->mapaStockFicticio();
-        return view('tienda_online.productos', compact('resultados', 'total_resultados', 'botones', 'busqueda', 'pagina', 'peticion', 'titulo', 'existencias', 'q', 'stockFicticios'));
+        $stockExterno = $this->mapaStockExterno(array_map(fn($r) => $r->codigo_nikko ?? '', $resultados));
+        return view('tienda_online.productos', compact('resultados', 'total_resultados', 'botones', 'busqueda', 'pagina', 'peticion', 'titulo', 'existencias', 'q', 'stockFicticios', 'stockExterno'));
     }
 
 
@@ -623,7 +669,13 @@ class TiendaOnlineController extends Controller
             LIMIT 8
         ", [$clave, $clave]);
 
-        return view('tienda_online.ver_producto', compact('producto', 'especificaciones', 'equivalencias', 'relacionados', 'titulo', 'especificaciones_extra'));
+        // Stock del proveedor externo (KIMS) para este producto: se muestra como
+        // disponibilidad y TOPA cuanto puede pedirse (la partida va a especial).
+        $mapaExt = $this->mapaStockExterno([$producto->codigo_nikko ?? '']);
+        $stockExternoProducto = (int) ($mapaExt[$producto->codigo_nikko ?? ''] ?? 0);
+        $tieneProveedorExterno = !empty($mapaExt);
+
+        return view('tienda_online.ver_producto', compact('producto', 'especificaciones', 'equivalencias', 'relacionados', 'titulo', 'especificaciones_extra', 'stockExternoProducto', 'tieneProveedorExterno'));
     }
 
     public function detalleProductoDemo($clave)
@@ -950,7 +1002,8 @@ class TiendaOnlineController extends Controller
         }
 
         $stockFicticios = $this->mapaStockFicticio();
-        return view('tienda_online.favoritos', compact('resultados', 'titulo', 'stockFicticios'));
+        $stockExterno = $this->mapaStockExterno(array_map(fn($r) => $r->codigo_nikko ?? '', $resultados));
+        return view('tienda_online.favoritos', compact('resultados', 'titulo', 'stockFicticios', 'stockExterno'));
     }
 
     public function actualizarCarrito(Request $request)
@@ -1223,7 +1276,14 @@ class TiendaOnlineController extends Controller
 
         $estampa = date("YmdHis");
 
-        return view('tienda_online.carrito', compact('productos', 'estampa', 'titulo', 'productos_especiales'));
+        // Stock de proveedores externos (KIMS) para topar cantidades en el carrito
+        // especial: no se puede comprometer mas de lo que el proveedor tiene.
+        $stockExterno = $this->mapaStockExterno(array_merge(
+            array_map(fn($x) => $x['codigo_nikko'] ?? '', $productos ?: []),
+            array_map(fn($x) => $x['codigo_nikko'] ?? '', $productos_especiales ?: [])
+        ));
+
+        return view('tienda_online.carrito', compact('productos', 'estampa', 'titulo', 'productos_especiales', 'stockExterno'));
     }
 
 
@@ -2039,7 +2099,8 @@ class TiendaOnlineController extends Controller
         $pagina = $p;
         $titulo = "Liquidación Pagina: " . $p;
         $stockFicticios = $this->mapaStockFicticio();
-        return view('tienda_online.productos_liquidacion', compact('resultados', 'total_resultados', 'botones', 'pagina', 'titulo', 'stockFicticios'));
+        $stockExterno = $this->mapaStockExterno(array_map(fn($r) => $r->codigo_nikko ?? '', $resultados));
+        return view('tienda_online.productos_liquidacion', compact('resultados', 'total_resultados', 'botones', 'pagina', 'titulo', 'stockFicticios', 'stockExterno'));
 
 
     }

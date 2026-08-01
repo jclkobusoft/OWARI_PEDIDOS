@@ -279,10 +279,15 @@
                                                                             $('.precio_real').html("$ "+parseFloat(precio * porcentaje).toFixed(2));
                                                                             // Data-driven desde SOMA — NUNCA hardcodear claves de proveedor.
                                                                             // obtenerStockFicticioVP devuelve 0 si SOMA caido o no aplica.
-                                                                            var existenciaFinal = parseInt(obj.existencia) + obtenerStockFicticioVP('{{ $producto->clave_proveedor ?? "" }}');
+                                                                            var existenciaFinal = (parseInt(obj.existencia) || 0) + obtenerStockFicticioVP('{{ $producto->clave_proveedor ?? "" }}');
                                                                             obj.existencia = existenciaFinal;
                                                                             producto_partida.existencia = existenciaFinal;
-                                                                            $('.existencia_real').html(existenciaFinal);
+                                                                            // Stock que tiene el proveedor externo (KIMS), sincronizado por SOMA.
+                                                                            // Se guarda APARTE a proposito: no se suma a producto_partida.existencia
+                                                                            // porque esa es la que reparte normal/especial contra SAE. Este stock
+                                                                            // no es nuestro y su partida siempre va a pedido especial.
+                                                                            producto_partida.stock_externo = {{ (int) ($stockExternoProducto ?? 0) }};
+                                                                            $('.existencia_real').html(existenciaFinal + producto_partida.stock_externo);
                                                                             $('.notas_precio').html(notas);
 
                                                                             var spinner = jQuery(this),
@@ -613,11 +618,22 @@ $('.slider-productos-mini').slick({
 
         var $cantidad = $('.cantidad').val();
         var $numero_parte = $(this).data('numero');
-        var $disponible_proveedor = 1;
+        // Disponibilidad real con el proveedor externo (KIMS): si el producto tiene
+        // integracion, manda su existencia; si no la tiene, se comporta como antes.
+        var $stock_externo = {{ (int) ($stockExternoProducto ?? 0) }};
+        var $tiene_proveedor_externo = {{ !empty($tieneProveedorExterno) ? 'true' : 'false' }};
+        var $disponible_proveedor = $tiene_proveedor_externo ? ($stock_externo > 0 ? 1 : 0) : 1;
 
         if(producto_partida.cliente=="N/A"){
 
-            if($disponible_proveedor = 1){
+            // No se puede comprometer con el cliente mas piezas de las que el proveedor tiene.
+            if($tiene_proveedor_externo && parseInt($cantidad) > $stock_externo){
+                alert('Solo hay ' + $stock_externo + ' pieza(s) disponibles con el proveedor. Se ajustara tu cantidad.');
+                $cantidad = $stock_externo;
+                $('.cantidad').val($stock_externo);
+            }
+
+            if($disponible_proveedor == 1){
                 $("#tipo").val("E");
                 if(!confirm("Este producto es para pedido especial, y sera agregado a tu carrito de productos especiales.¿Deseas continuar?"))
                     return false;

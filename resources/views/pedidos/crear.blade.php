@@ -489,6 +489,11 @@
                     if (obj.cliente == "N/A") {
                         a_especial = cantidad;
                         cantidad = 0;
+                        // No se puede comprometer mas piezas de las que el proveedor tiene.
+                        if (obj.tiene_proveedor_externo && a_especial > obj.stock_externo) {
+                            alert('Solo hay ' + obj.stock_externo + ' pieza(s) disponibles con el proveedor. Se ajustara la cantidad.');
+                            a_especial = obj.stock_externo;
+                        }
                     }
                     else {
                         if (confirm("No puedes agregar mas cantidad de la que hay en almacen.¿Deseas agregar la diferencia para un pedido especial?")) {
@@ -825,6 +830,16 @@
                     // no detectaria el proveedor especial y la partida caeria en
                     // clasificarPorEmpresa como producto normal.
                     obj.clave_proveedor = $clave_proveedor || '';
+
+                    // Stock del proveedor externo (KIMS), que viene de apiBusqueda (SOMA).
+                    // Se guarda APARTE y NUNCA se suma a obj.existencia: si se sumara,
+                    // separarPartidas/clasificarPorEmpresa lo tomarian como existencia de
+                    // SAE e intentarian facturarlo en E01, y SAE rechazaria la partida.
+                    // Estos productos no estan en SAE, asi que ya se van a especial; este
+                    // dato solo sirve para mostrar disponibilidad y TOPAR la cantidad.
+                    var filaSel = fila_seleccionada ? fila_seleccionada.getData() : {};
+                    obj.stock_externo = parseInt(filaSel.stock_externo || 0) || 0;
+                    obj.tiene_proveedor_externo = !!filaSel.tiene_proveedor_externo;
 
                     producto_partida = obj;
                     if (obj.cliente == "N/A")
