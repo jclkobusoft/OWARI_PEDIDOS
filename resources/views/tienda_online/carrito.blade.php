@@ -810,16 +810,25 @@
                 );
             });
 
+            // Stock que tiene el proveedor externo (KIMS) por clave, sincronizado por SOMA.
+            // Sirve para topar la cantidad al EDITAR en el carrito: sin esto se podia
+            // agregar 20 (topado en la ficha) y luego subirlo a 500 desde aqui.
+            var STOCK_EXTERNO_CARRITO = @json($stockExterno ?? []);
+
             $('.actualizar_producto_especial').click(function(e) {
                 e.preventDefault();
 
                 var $cantidad = $('.cantidad_' + $(this).data('i')).val();
 
                 var $numero_parte = $(this).data('numero');
+                // Sin proveedor externo se mantiene el comportamiento de siempre (sin tope).
                 var $maximo_stock = 1000000;
+                if (Object.prototype.hasOwnProperty.call(STOCK_EXTERNO_CARRITO, $numero_parte)) {
+                    $maximo_stock = parseInt(STOCK_EXTERNO_CARRITO[$numero_parte]) || 0;
+                }
 
                 if (parseInt($cantidad) > parseInt($maximo_stock)) {
-                    alert('Solo tenemos en existencia: ' + $maximo_stock + '. Ingresa una cantidad menor.');
+                    alert('Solo hay ' + $maximo_stock + ' pieza(s) disponibles con el proveedor. Ingresa una cantidad menor.');
                     return false;
                 }
 

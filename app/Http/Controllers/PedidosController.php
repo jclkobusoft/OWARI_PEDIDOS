@@ -244,6 +244,63 @@ class PedidosController extends Controller
         else
             $clave_cliente = $cliente;
 
+        // ── TOPE POR STOCK DE PROVEEDOR EXTERNO (KIMS, etc.) ──────────────────
+        // Los topes del navegador (ficha y carrito) se pueden saltar, y sobre todo:
+        // el proveedor pudo vender esas piezas mientras el cliente armaba su pedido.
+        // Aqui se revalida contra la copia que SOMA mantiene sincronizada y se rechaza
+        // el pedido si alguna partida excede lo disponible.
+        // Defensivo: si SOMA no responde NO se bloquea la venta (se deja pasar y se
+        // registra el warning), para no tumbar el checkout por una falla de conexion.
+        if (!empty($partidas) && is_array($partidas)) {
+            try {
+                $claves = array_values(array_filter(array_map(
+                    fn($p) => trim((string) ($p['codigo'] ?? '')), $partidas
+                )));
+
+                if (!empty($claves)) {
+                    $filas = \DB::connection('owari_soma')
+                        ->table('productos_stock_externo as pse')
+                        ->join('productos as p', 'p.id', '=', 'pse.id_producto')
+                        ->whereNull('pse.deleted_at')
+                        ->whereNull('p.deleted_at')
+                        ->whereIn('p.clave', $claves)
+                        ->get(['p.clave', 'pse.existencia', 'pse.estado']);
+
+                    $disponibles = [];
+                    foreach ($filas as $f) {
+                        $disponibles[$f->clave] = $f->estado === 'ok' ? max(0, (float) $f->existencia) : 0;
+                    }
+
+                    $excedidas = [];
+                    foreach ($partidas as $pa) {
+                        $clave = trim((string) ($pa['codigo'] ?? ''));
+                        // Producto sin proveedor externo: sin tope, como siempre.
+                        if ($clave === '' || !array_key_exists($clave, $disponibles)) continue;
+
+                        $pedida = (float) ($pa['cantidad'] ?? 0);
+                        if ($pedida > $disponibles[$clave]) {
+                            $excedidas[] = $clave . ' (pides ' . (0 + $pedida)
+                                         . ', disponibles ' . (0 + $disponibles[$clave]) . ')';
+                        }
+                    }
+
+                    if (!empty($excedidas)) {
+                        \Log::info('guardarPedidoEspecial: rechazado por stock de proveedor externo', [
+                            'cliente' => $clave_cliente, 'partidas' => $excedidas,
+                        ]);
+                        return json_encode([
+                            'code' => 0,
+                            'mensaje' => 'El proveedor ya no tiene esa cantidad disponible: '
+                                       . implode(' | ', $excedidas)
+                                       . '. Ajusta las cantidades de tu carrito e intenta de nuevo.',
+                        ]);
+                    }
+                }
+            } catch (\Throwable $e) {
+                \Log::warning('guardarPedidoEspecial: no se pudo validar stock externo: ' . $e->getMessage());
+            }
+        }
+
         $url = 'https://sistemasowari.com:8443/catalowari/api/datos_cliente?' . http_build_query(["clave" =>  $clave_cliente]);
 
         $ch = curl_init();
