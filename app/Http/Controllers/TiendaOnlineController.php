@@ -1517,7 +1517,7 @@ class TiendaOnlineController extends Controller
             $obj = new \stdClass();
             $obj->id = $esp->id;
             $obj->pedido_sae = 'SYD-' . $esp->id;
-            $obj->estado = 'EN PROCESO';
+            $obj->estado = 'SURTIDO BODEGA2';
             $obj->created_at = $esp->created_at;
             $obj->partidas = $esp->partidas;
             $obj->gran_total = $esp->gran_total;

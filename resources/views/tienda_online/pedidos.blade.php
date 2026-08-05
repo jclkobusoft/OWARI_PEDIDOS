@@ -50,7 +50,7 @@
                                                 <tr>
                                                     <td class="{{ $esSyd ? 'enlace_pedido_especial' : 'enlace_pedido' }}" data-pedido="{{ $pedido->id }}">
                                                         @if($esSyd)
-                                                            <b>EN PROCESO</b>
+                                                            <b>SURTIDO BODEGA2</b>
                                                         @else
                                                             <b>{{ $pedido->pedido_sae ?: '—' }}</b>
                                                             @if(!empty($pedido->pedido_sae_remision))
@@ -59,7 +59,7 @@
                                                         @endif
                                                     </td>
                                                     <td class="{{ $esSyd ? 'enlace_pedido_especial' : 'enlace_pedido' }}" data-pedido="{{ $pedido->id }}">
-                                                        {{ $esSyd ? 'EN PROCESO' : $pedido->estado }}</td>
+                                                        {{ $esSyd ? 'SURTIDO BODEGA2' : $pedido->estado }}</td>
                                                     <td class="{{ $esSyd ? 'enlace_pedido_especial' : 'enlace_pedido' }}" data-pedido="{{ $pedido->id }}">
                                                         {{ \Carbon::createFromFormat('Y-m-d H:i:s', $pedido->created_at)->format('d/m/Y h:i A') }}
                                                     </td>
@@ -74,7 +74,7 @@
                                                                 style="color:white; background-color:rgb(43,57,145);"
                                                                 data-pedido="{{ $pedido->id }}">Ver pedido PDF</button>
                                                         @else
-                                                            <span class="text-muted" style="font-size:12px;">En proceso</span>
+                                                            <span class="text-muted" style="font-size:12px;">SURTIDO BODEGA2</span>
                                                         @endif
                                                     </td>
                                                     <td>
