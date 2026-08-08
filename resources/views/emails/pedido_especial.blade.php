@@ -14,7 +14,7 @@
 		</div>
 		<h2 style="color:#c62828;">Hay un nuevo pedido especial de SYD (proveedor S227).</h2>
 		<p>Este pedido debe surtirse con el proveedor cercano <b>Suspension Y Direccion (S227)</b> inmediatamente.</p>
-	@elseif($info_cliente['CAMPLIB14'] == "SI")
+	@elseif(($info_cliente['CAMPLIB14'] ?? '') == "SI")
 		<h2 style="color:red">Hay un nuevo pedido especial QUE SE DEBE COBRAR PRIMERO.</h2>
 	@else
 		<h2>Hay un nuevo pedido especial.</h2>
