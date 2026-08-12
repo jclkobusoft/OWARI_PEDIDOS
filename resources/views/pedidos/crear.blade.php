@@ -787,7 +787,11 @@
                             "buscar": val.buscador,
                             'precio_normal': val.precio_normal,
                             'disponibilidad': val.disponibilidad,
-                            'clave_proveedor': val.clave_proveedor || ''
+                            'clave_proveedor': val.clave_proveedor || '',
+                            // ID interno de SOMA: el SAE trunca las claves a 16
+                            // chars, asi que el backend resuelve el proveedor
+                            // por este id y no por el codigo mutilado.
+                            'producto_id': val.producto_id || ''
 
                         });
                     });
@@ -840,6 +844,12 @@
                     var filaSel = fila_seleccionada ? fila_seleccionada.getData() : {};
                     obj.stock_externo = parseInt(filaSel.stock_externo || 0) || 0;
                     obj.tiene_proveedor_externo = !!filaSel.tiene_proveedor_externo;
+
+                    // Igual que clave_proveedor: el SAE no devuelve el id interno
+                    // de SOMA, lo copiamos de la fila tabulator (apiBusqueda) para
+                    // que el backend resuelva el proveedor por id y no por la
+                    // clave, que el SAE trunca a 16 caracteres.
+                    obj.producto_id = filaSel.producto_id || '';
 
                     producto_partida = obj;
                     if (obj.cliente == "N/A")
@@ -1613,6 +1623,7 @@
             function enriquecerDesdeObj(p, obj) {
                 if (!obj) return p;
                 p.clave_proveedor    = (obj.clave_proveedor || '').trim();
+                p.producto_id        = obj.producto_id || '';
                 p.existencia         = parseInt(obj.existencia)         || 0;
                 p.existencia_factura = parseInt(obj.existencia_factura);
                 p.existencia_remision = parseInt(obj.existencia_remision);

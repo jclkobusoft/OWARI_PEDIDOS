@@ -300,7 +300,11 @@
                                                                 "existencia_sae": existenciaSae,
                                                                 "existencia_factura": parseInt(obj.existencia_factura),
                                                                 "existencia_remision": parseInt(obj.existencia_remision),
-                                                                "clave_proveedor": '{{ data_get($producto, 'clave_proveedor', '') }}'
+                                                                "clave_proveedor": '{{ data_get($producto, 'clave_proveedor', '') }}',
+                                                                // ID interno de SOMA: el SAE trunca las claves a 16
+                                                                // chars, asi que el backend resuelve el proveedor
+                                                                // por este id y no por el codigo mutilado.
+                                                                "producto_id": '{{ data_get($producto, 'producto_id', '') }}'
                                                             })
                                                             partidas.push(producto_partida);
 
@@ -498,7 +502,9 @@
                                                             "sae": obj.cliente == "N/A" ? "NO ESTA EN SAE" : 'EN SAE',
                                                             "existencia_factura": parseInt(obj.existencia_factura),
                                                             "existencia_remision": parseInt(obj.existencia_remision),
-                                                            "clave_proveedor": '{{ data_get($producto, 'clave_proveedor', '') }}'
+                                                            "clave_proveedor": '{{ data_get($producto, 'clave_proveedor', '') }}',
+                                                            // ID interno de SOMA — ver nota en partidas_finales.
+                                                            "producto_id": '{{ data_get($producto, 'producto_id', '') }}'
                                                         })
                                                         partidas_especiales.push(producto_partida);
 

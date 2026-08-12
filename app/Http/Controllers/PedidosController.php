@@ -357,6 +357,20 @@ class PedidosController extends Controller
             // tiene fila en productos_proveedores, clave_proveedor queda null y
             // el fallback de abajo pone 'SIN CLAVE', pero el nombre del
             // proveedor (prov.clave) igual se resuelve por p.id_proveedor.
+            //
+            // Matcheamos por p.id (producto_id de SOMA) cuando la partida lo
+            // trae. El SAE TRUNCA las claves de articulo a 16 caracteres, asi
+            // que para claves mas largas el codigo guardado ya viene mutilado
+            // (ej. "35BG5220 2DLCS LSB" llega como "35BG5220 2DLCS L") y el
+            // match por p.clave falla siempre, dejando el proveedor en
+            // 'Desconocido'. El id interno no lo toca el SAE.
+            $productoIdPartida = $value['producto_id'] ?? null;
+            $productoIdPartida = (is_numeric($productoIdPartida) && (int) $productoIdPartida > 0)
+                                    ? (int) $productoIdPartida
+                                    : null;
+            $condicionMatch = $productoIdPartida ? 'p.id = ?' : 'p.clave = ?';
+            $valorMatch     = $productoIdPartida ?: $value['codigo'];
+
             $provInfo = \DB::connection('owari_soma')->select("
                 SELECT pp.clave_proveedor,
                        prov.clave as proveedor,
@@ -373,10 +387,19 @@ class PedidosController extends Controller
                 LEFT JOIN productos_web pw
                        ON pw.id_producto = p.id
                       AND pw.deleted_at IS NULL
-                WHERE p.clave = ? AND p.deleted_at IS NULL
+                WHERE {$condicionMatch} AND p.deleted_at IS NULL
                 LIMIT 1
-            ", [$value['codigo']]);
+            ", [$valorMatch]);
             $provData = $provInfo[0] ?? null;
+
+            // Proveedor efectivo: el resuelto en SOMA o, si no se pudo resolver
+            // (clave truncada por SAE, producto sin proveedor principal, etc.),
+            // el que ya venia en la partida desde el catalogo del frontend.
+            // Asi el proveedor (ej. W401) no se pierde aunque falle el match.
+            $proveedorEfectivo = $provData->proveedor ?? null;
+            if (empty($proveedorEfectivo)) {
+                $proveedorEfectivo = trim((string) ($value['clave_proveedor'] ?? '')) ?: null;
+            }
 
             $data = [
                 'id_pedido' => $pedido->id,
@@ -390,8 +413,8 @@ class PedidosController extends Controller
                 'id_pedido' => $pedido->id,
                 'clave' => $value['codigo'],
                 'cantidad' => floatval($value['cantidad']),
-                'clave_proveedor' => $provData ? $provData->clave_proveedor : 'SIN CLAVE',
-                'proveedor' => $provData ? $provData->proveedor : 'Desconocido',
+                'clave_proveedor' => $provData->clave_proveedor ?? 'SIN CLAVE',
+                'proveedor' => $proveedorEfectivo ?? 'Desconocido',
                 'precio_unitario' => floatval($value['precio']),
                 'gran_total' => floatval($value['total']),
                 'sae' => $value['sae'] ?? '',
@@ -404,10 +427,10 @@ class PedidosController extends Controller
             // producto no tiene proveedor resuelto en SOMA se marca para que
             // sea visible allá en vez de perderse.
             $filasEnvio[] = [
-                'clave_proveedor_sistema' => ($provData && !empty($provData->proveedor)) ? $provData->proveedor : 'SIN PROVEEDOR',
+                'clave_proveedor_sistema' => $proveedorEfectivo ?? 'SIN PROVEEDOR',
                 'id_proveedor'            => $provData->id_proveedor ?? null,
                 'clave_owari'             => $value['codigo'],
-                'id_producto'             => $provData->id_producto ?? null,
+                'id_producto'             => $provData->id_producto ?? $productoIdPartida,
                 'clave_proveedor'         => $provData->clave_proveedor ?? null,
                 'descripcion'             => ($provData && !empty($provData->descripcion))
                                                 ? $provData->descripcion
@@ -417,7 +440,7 @@ class PedidosController extends Controller
                 'total'                   => floatval($value['total']),
                 'id_partida_origen'       => $partidaCreada->id,
                 'existencia_sae'          => $value['sae'] ?? null,
-                'observaciones'           => ($provData && !empty($provData->proveedor))
+                'observaciones'           => $proveedorEfectivo
                                                 ? null
                                                 : 'Producto sin proveedor principal en SOMA',
             ];
