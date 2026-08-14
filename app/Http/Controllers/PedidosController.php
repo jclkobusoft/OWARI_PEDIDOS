@@ -301,7 +301,10 @@ class PedidosController extends Controller
             }
         }
 
-        $url = 'https://sistemasowari.com:8443/catalowari/api/datos_cliente?' . http_build_query(["clave" =>  $clave_cliente]);
+        // Datos del cliente desde SOMA (fuente de la verdad). Devuelve los mismos
+        // alias que el row de SAE: NOMBRE y CAMPLIB14 ('SI' = COBRAR PRIMERO, que
+        // ahora vive en clientes.cobrar_primero de SOMA).
+        $url = 'https://owari.appsoma.online/somma/v2.0/api/clientes/datos?' . http_build_query(["clave" =>  $clave_cliente]);
 
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, $url);
