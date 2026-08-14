@@ -36,12 +36,12 @@
 
        <script>
        
-            var  url = "https://sistemasowari.com:8443/catalowari/api/clientes_factura";
+            var  url = "https://owari.appsoma.online/somma/v2.0/api/clientes/lista"; // clientes activos desde SOMA (fuente de la verdad)
 
             $.get(
             url,{vendedor: ''},
             function (data) {
-                var obj = jQuery.parseJSON(data);
+                var obj = (typeof data === 'string') ? jQuery.parseJSON(data) : data;
                 clientes = obj;
                 
                 $("#clave_cliente").html('<option value="-1">Selecciona o busca un cliente</option>')

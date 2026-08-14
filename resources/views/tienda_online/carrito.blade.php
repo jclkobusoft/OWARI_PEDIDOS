@@ -653,11 +653,11 @@
         <script type="text/javascript">
             var envio_recoge = false;
 
-            $.get('https://sistemasowari.com:8443/catalowari/api/cliente', {
+            $.get('https://owari.appsoma.online/somma/v2.0/api/clientes/datos', {
                 cliente: '{{ \Auth::user()->clave_cliente }}'
             }, function(data) {
-                /*optional stuff to do after success */
-                data = jQuery.parseJSON(data);
+                // SOMA responde JSON ya parseado; SAE respondia string.
+                if (typeof data === 'string') data = jQuery.parseJSON(data);
 
                 if (data.cliente.STATUS != "A") {
                     alert(
@@ -1336,12 +1336,12 @@
             }
 
             async function obtenerClienteSae() {
-                // GET /catalowari/api/datos_cliente?clave={clave}.
-                // Devuelve el row crudo de CLIE01 LEFT JOIN CLIE_CLIB01 (incluye
-                // CLASIFIC, CAMPLIB3, CAMPLIB13, METODODEPAGO, FORMADEPAGOSAT,
-                // USO_CFDI, RFC, CVE_VEND, etc.).
+                // GET SOMA /api/clientes/datos?clave={clave} — SOMA es la fuente.
+                // Devuelve los mismos alias que el row de SAE (CLAVE, CLASIFIC,
+                // EXISTE_E3, METODODEPAGO, USO_CFDI...); CAMPLIB3 va vacio porque
+                // las promos de regalo ya son por lista de clientes en SOMA.
                 var claveCliente = '{{ \Auth::user()->clave_cliente }}';
-                var url = 'https://sistemasowari.com:8443/catalowari/api/datos_cliente?clave=' +
+                var url = 'https://owari.appsoma.online/somma/v2.0/api/clientes/datos?clave=' +
                           encodeURIComponent(claveCliente);
 
                 var resp = await fetch(url);
@@ -1647,30 +1647,10 @@
                     var pr = data.partida_regalo;
                     var claveRegalo = String(pr.clave || '');
 
-                    // Regla "una sola vez por cliente": SAE empresa 1 es la
-                    // fuente de verdad — buscamos PAR_FACTP01 JOIN FACTP01 con
-                    // la clave del regalo, cliente, STATUS!=C. Si ya tiene,
-                    // descartamos. En error devolvemos null (conservador).
-                    if (claveRegalo) {
-                        try {
-                            var url = 'https://sistemasowari.com:8443/catalowari/api/regalo_ya_tiene'
-                                + '?cliente=' + encodeURIComponent(cliente.CLAVE)
-                                + '&clave_regalo=' + encodeURIComponent(claveRegalo);
-                            var verif = await fetch(url, { headers: { 'Accept': 'application/json' }});
-                            if (!verif.ok) {
-                                console.warn('consultarRegalo: SAE verificacion HTTP', verif.status, '— no se aplica');
-                                return null;
-                            }
-                            var vdata = await verif.json();
-                            if (vdata && vdata.ya_tiene === true) {
-                                console.log('consultarRegalo: cliente ya tiene', claveRegalo, 'en SAE — no se aplica');
-                                return null;
-                            }
-                        } catch (e2) {
-                            console.warn('consultarRegalo: verificacion SAE fallo:', e2);
-                            return null;
-                        }
-                    }
+                    // Regla "una sola vez por cliente": la valida el propio service
+                    // de SOMA (clienteYaTomoRegalo sobre sus pedidos) al evaluar la
+                    // promocion. La verificacion extra contra SAE (regalo_ya_tiene)
+                    // se retiro: las promociones nuevas arrancaron de cero en SOMA.
 
                     return {
                         codigo:              claveRegalo,

@@ -538,9 +538,9 @@
              
             var envio_recoge = false;
 
-            $.get('https://sistemasowari.com:8443/catalowari/api/cliente', { cliente: '{{ \Auth::user()->clave_cliente }}'} ,function(data) {
-                /*optional stuff to do after success */
-                data = jQuery.parseJSON(data);
+            $.get('https://owari.appsoma.online/somma/v2.0/api/clientes/datos', { cliente: '{{ \Auth::user()->clave_cliente }}'} ,function(data) {
+                // SOMA responde JSON ya parseado; SAE respondia string.
+                if (typeof data === 'string') data = jQuery.parseJSON(data);
 
                 if(data.cliente.STATUS != "A"){
                     alert("Tu cuenta se encuentra suspendida, favor de comunitarte al area de cobranza. Cel. 56-1318-4858");

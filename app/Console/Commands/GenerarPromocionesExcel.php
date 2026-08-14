@@ -28,7 +28,9 @@ class GenerarPromocionesExcel extends Command
     protected $signature   = 'promociones:generar-excel';
     protected $description  = 'Genera el Excel diario de promociones globales de la tienda';
 
-    private const URL_EXTERNO = 'https://sistemasowari.com:8443/catalowari/api/promociones-global';
+    // SOMA es la fuente: mismas llaves que el endpoint historico de SAE, pero
+    // calculado con las politicas/listas de SOMA (precio publico con IVA).
+    private const URL_EXTERNO = 'https://owari.appsoma.online/somma/v2.0/api/promociones-global';
     private const ARCHIVO     = 'promociones.xlsx';   // en el disco 'local' -> storage/app/
 
     public function handle(): int

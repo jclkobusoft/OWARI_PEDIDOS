@@ -151,7 +151,7 @@
 
                                         var producto_partida;
                                         setTimeout(() => {
-                                                            $.get( "https://sistemasowari.com:8443/catalowari/api/empresa_buscar_producto",
+                                                            $.get( "https://owari.appsoma.online/somma/v2.0/api/cotizar",
                                                                     { cliente: '{{ \Auth::user()->clave_cliente }}', clave: '{{ $producto->codigo_nikko }}', tipo: 'factura' },
                                                                     function (data, textStatus, jqXHR) {
 

@@ -524,7 +524,8 @@ class TiendaOnlineController extends Controller
             array_push($productos, urlencode($resultado->codigo_nikko));
         }
 
-        $url = 'https://sistemasowari.com:8443/catalowari/api/productos-existencias?' . http_build_query(["productos" => $productos]);
+        // (el cURL de abajo esta comentado desde antes; URL a SOMA por coherencia)
+		$url = 'https://owari.appsoma.online/somma/v2.0/api/existencias?' . http_build_query(["claves" => $productos]);
         //dd($url);
         /*$ch = curl_init();
                     curl_setopt($ch, CURLOPT_URL, $url);
@@ -1135,7 +1136,7 @@ class TiendaOnlineController extends Controller
                 $premio_partida = PedidoPartida::join('pedidos_web', 'pedidos_partidas.id_pedido', '=', 'pedidos_web.id')->where('pedidos_partidas.clave', $premio)->where('pedidos_web.cliente', \Auth::user()->clave_cliente)->where('pedidos_web.deleted_at', null)->first();
 
                 if (!$premio_partida) {
-                    $url = 'https://sistemasowari.com:8443/catalowari/api/empresa_buscar_producto?' . http_build_query(["clave" => $premio, "cliente" => \Auth::user()->clave_cliente, 'tipo' => 'factura']);
+                    $url = 'https://owari.appsoma.online/somma/v2.0/api/cotizar?' . http_build_query(["clave" => $premio, "cliente" => \Auth::user()->clave_cliente, 'tipo' => 'factura']);
                     $ch = curl_init();
                     curl_setopt($ch, CURLOPT_URL, $url);
                     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -1154,29 +1155,16 @@ class TiendaOnlineController extends Controller
 
 
             $productos = $this->buscarProductosPorClaves(array_column($carrito, 'numero_parte'));
+            // Existencias desde SOMA en UN SOLO lote (antes: un cURL a SAE por
+            // producto — N+1 que hacia lento abrir el carrito). SOMA es la fuente
+            // de la verdad del stock: espejo nocturno + decrementos por pedido.
+            $existenciasLote = $this->existenciasReales(array_map(fn($v) => $v['codigo_nikko'], $productos));
+
             foreach ($productos as $key => $value) {
-
-                $url = 'https://sistemasowari.com:8443/catalowari/api/producto-existencia?' . http_build_query(["clave" => $value['codigo_nikko']]);
-                $ch = curl_init();
-                curl_setopt($ch, CURLOPT_URL, $url);
-                curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-                curl_setopt($ch, CURLOPT_HEADER, 0);
-                curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
-                curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0);
-                $data = curl_exec($ch);
-                curl_close($ch);
-                $existencias_reales = json_decode($data, true);
-
-                // Si SAE no devolvio info valida para este producto, saltarlo
-                // y seguir con los demas para que el carrito siga abriendo.
-                if (!is_array($existencias_reales)) {
-                    unset($productos[$key]);
-                    continue;
-                }
-
                 // Guardar SIEMPRE la existencia real (sin ficticio) para que la
                 // logica de division (split) pueda usar el stock real.
-                $existenciaRealSae = intval($existencias_reales['existencia'] ?? 0);
+                $existenciaRealSae = intval($existenciasLote[$value['codigo_nikko']] ?? 0);
+                $existencias_reales = ['existencia' => $existenciaRealSae];
                 $productos[$key]['existencia_real_sae'] = $existenciaRealSae;
 
                 // Sumar `stock_ficticio` al stock visible si el proveedor del
@@ -1650,7 +1638,7 @@ class TiendaOnlineController extends Controller
 
 
 
-                $url = 'https://sistemasowari.com:8443/catalowari/api/empresa_buscar_producto?' . http_build_query(["clave" => $clave, "cliente" => \Auth::user()->clave_cliente, 'tipo' => 'factura']);
+                $url = 'https://owari.appsoma.online/somma/v2.0/api/cotizar?' . http_build_query(["clave" => $clave, "cliente" => \Auth::user()->clave_cliente, 'tipo' => 'factura']);
                 $ch = curl_init();
                 curl_setopt($ch, CURLOPT_URL, $url);
                 curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -1718,7 +1706,8 @@ class TiendaOnlineController extends Controller
         $catalogo = \Cache::remember('descuentos_catalogo_' . $claveCliente, now()->addMinutes(15), function () use ($claveCliente) {
         // 1) Lista de productos con descuento + vigencia desde el externo (SAE).
         //    Devuelve [{clave, vigencia, inicio}].
-        $url = 'https://sistemasowari.com:8443/catalowari/api/productos-descuentos?' . http_build_query(["cliente" => $claveCliente]);
+        // Descuentos del cliente desde SOMA (politicas propias; mismo shape que SAE)
+        $url = 'https://owari.appsoma.online/somma/v2.0/api/productos-descuentos?' . http_build_query(["cliente" => $claveCliente]);
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, $url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -2158,7 +2147,7 @@ class TiendaOnlineController extends Controller
         try {
             $ch = curl_init();
             curl_setopt_array($ch, [
-                CURLOPT_URL            => 'https://sistemasowari.com:8443/catalowari/api/productos-existencias-real?' . http_build_query(['productos' => $claves]),
+                CURLOPT_URL            => 'https://owari.appsoma.online/somma/v2.0/api/existencias?' . http_build_query(['claves' => $claves]),
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_SSL_VERIFYHOST => 0,
                 CURLOPT_SSL_VERIFYPEER => 0,
@@ -2167,6 +2156,11 @@ class TiendaOnlineController extends Controller
             $body = curl_exec($ch);
             curl_close($ch);
             $data = json_decode($body, true);
+            // SOMA responde {code, existencias: {clave: n}}; SAE respondia el mapa
+            // directo. Se aceptan las dos formas.
+            if (is_array($data) && isset($data['existencias']) && is_array($data['existencias'])) {
+                return $data['existencias'];
+            }
             return is_array($data) ? $data : [];
         } catch (\Throwable $e) {
             \Log::warning('existenciasReales fallo: ' . $e->getMessage());
@@ -2583,7 +2577,7 @@ class TiendaOnlineController extends Controller
                 $premio_partida = PedidoPartida::join('pedidos_web', 'pedidos_partidas.id_pedido', '=', 'pedidos_web.id')->where('pedidos_partidas.clave', $premio)->where('pedidos_web.cliente', \Auth::user()->clave_cliente)->where('pedidos_web.deleted_at', null)->first();
 
                 if (!$premio_partida) {
-                    $url = 'https://sistemasowari.com:8443/catalowari/api/empresa_buscar_producto?' . http_build_query(["clave" => $premio, "cliente" => \Auth::user()->clave_cliente, 'tipo' => 'factura']);
+                    $url = 'https://owari.appsoma.online/somma/v2.0/api/cotizar?' . http_build_query(["clave" => $premio, "cliente" => \Auth::user()->clave_cliente, 'tipo' => 'factura']);
                     $ch = curl_init();
                     curl_setopt($ch, CURLOPT_URL, $url);
                     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -2602,29 +2596,16 @@ class TiendaOnlineController extends Controller
 
 
             $productos = $this->buscarProductosPorClaves(array_column($carrito, 'numero_parte'));
+            // Existencias desde SOMA en UN SOLO lote (antes: un cURL a SAE por
+            // producto — N+1 que hacia lento abrir el carrito). SOMA es la fuente
+            // de la verdad del stock: espejo nocturno + decrementos por pedido.
+            $existenciasLote = $this->existenciasReales(array_map(fn($v) => $v['codigo_nikko'], $productos));
+
             foreach ($productos as $key => $value) {
-
-                $url = 'https://sistemasowari.com:8443/catalowari/api/producto-existencia?' . http_build_query(["clave" => $value['codigo_nikko']]);
-                $ch = curl_init();
-                curl_setopt($ch, CURLOPT_URL, $url);
-                curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-                curl_setopt($ch, CURLOPT_HEADER, 0);
-                curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
-                curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0);
-                $data = curl_exec($ch);
-                curl_close($ch);
-                $existencias_reales = json_decode($data, true);
-
-                // Si SAE no devolvio info valida para este producto, saltarlo
-                // y seguir con los demas para que el carrito siga abriendo.
-                if (!is_array($existencias_reales)) {
-                    unset($productos[$key]);
-                    continue;
-                }
-
                 // Guardar SIEMPRE la existencia real (sin ficticio) para que la
                 // logica de division (split) pueda usar el stock real.
-                $existenciaRealSae = intval($existencias_reales['existencia'] ?? 0);
+                $existenciaRealSae = intval($existenciasLote[$value['codigo_nikko']] ?? 0);
+                $existencias_reales = ['existencia' => $existenciaRealSae];
                 $productos[$key]['existencia_real_sae'] = $existenciaRealSae;
 
                 // Sumar `stock_ficticio` al stock visible si el proveedor del

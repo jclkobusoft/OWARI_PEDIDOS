@@ -809,7 +809,7 @@
 
         function buscarProducto($cliente, $clave, $cantidad, $equivalencias, $precio_normal, $clave_proveedor) {
             $.get(
-                "https://sistemasowari.com:8443/catalowari/api/empresa_buscar_producto_vendedores",
+                "https://owari.appsoma.online/somma/v2.0/api/cotizar",
                 { cliente: $cliente, clave: $clave, tipo: $("input:radio[name ='tipo_pedido']:checked").val() },
                 function (data) {
                     //console.log(data);
@@ -997,9 +997,9 @@
                         });
                     }
                     $.each($('.forzar-busqueda'), function (i, val) {
-                        $.get("https://sistemasowari.com:8443/catalowari/api/producto-existencia", { "clave": $(val).data('clave') },
+                        $.get("https://owari.appsoma.online/somma/v2.0/api/existencias", { "clave": $(val).data('clave') },
                             function (data, textStatus, jqXHR) {
-                                data = JSON.parse(data);
+                                if (typeof data === 'string') data = JSON.parse(data);
                                 var existencia = parseInt(data.existencia);
                                 $(val).find('.indice_equivalencia').text("").text(existencia);
                             }
@@ -1114,7 +1114,7 @@
                         $.ajax({
                             type: 'GET',
                             async: false,
-                            url: "https://sistemasowari.com:8443/catalowari/api/empresa_buscar_producto",
+                            url: "https://owari.appsoma.online/somma/v2.0/api/cotizar",
                             data: { cliente: clave_cliente, clave: v.CLAVE, tipo: $("input:radio[name ='tipo_pedido']:checked").val() },
                             dataType: 'json',
                             success: function (data) {
@@ -1903,30 +1903,10 @@
                 var pr = data.partida_regalo;
                 var claveRegalo = String(pr.clave || '');
 
-                // Regla "una sola vez por cliente": SAE empresa 1 es la fuente
-                // de verdad — buscamos PAR_FACTP01 JOIN FACTP01 con la clave
-                // del regalo, cliente, STATUS!=C. Si ya tiene, descartamos.
-                // En error devolvemos null (conservador: no regalar dos veces).
-                if (claveRegalo) {
-                    try {
-                        var url = 'https://sistemasowari.com:8443/catalowari/api/regalo_ya_tiene'
-                            + '?cliente=' + encodeURIComponent(cliente.clave)
-                            + '&clave_regalo=' + encodeURIComponent(claveRegalo);
-                        var verif = await fetch(url, { headers: { 'Accept': 'application/json' }});
-                        if (!verif.ok) {
-                            console.warn('consultarRegalo: SAE verificacion HTTP', verif.status, '— no se aplica');
-                            return null;
-                        }
-                        var vdata = await verif.json();
-                        if (vdata && vdata.ya_tiene === true) {
-                            console.log('consultarRegalo: cliente ya tiene', claveRegalo, 'en SAE — no se aplica');
-                            return null;
-                        }
-                    } catch (e2) {
-                        console.warn('consultarRegalo: verificacion SAE fallo:', e2);
-                        return null;
-                    }
-                }
+                // Regla "una sola vez por cliente": la valida el service de SOMA
+                // (clienteYaTomoRegalo sobre sus pedidos) al evaluar la promocion.
+                // La verificacion extra contra SAE (regalo_ya_tiene) se retiro: las
+                // promociones nuevas arrancaron de cero en SOMA.
 
                 // El regalo se trata como partida normal de SAE, dirigida a
                 // empresa 1 (factura). existencia_remision=-1 evita que vaya
@@ -2295,10 +2275,10 @@
 
         function inicializarFormularioPedido() {
             $.get(
-                'https://sistemasowari.com:8443/catalowari/api/clientes_factura',
+                'https://owari.appsoma.online/somma/v2.0/api/clientes/lista',
                 { vendedor: '' },
                 function (data) {
-                    var obj = jQuery.parseJSON(data);
+                    var obj = (typeof data === 'string') ? jQuery.parseJSON(data) : data;
                     clientes = obj;
 
                     $("#cliente").html('<option value="-1">Selecciona o busca un cliente</option>');
@@ -2335,7 +2315,7 @@
             // y un flag EXISTE_E3 que indica si el cliente esta en CLIE03.
             try {
                 var resp = await fetch(
-                    'https://sistemasowari.com:8443/catalowari/api/datos_cliente?clave=' +
+                    'https://owari.appsoma.online/somma/v2.0/api/clientes/datos?clave=' +
                     encodeURIComponent(cliente.clave)
                 );
                 if (resp.ok) {
