@@ -1385,6 +1385,23 @@
                     partidas_sae_e01:  dividirEnChunks(clasificacion.factura,  CHUNK_SIZE_SAE).map(function (c) { return c.length; }),
                     partidas_sae_e03:  dividirEnChunks(clasificacion.remision, CHUNK_SIZE_SAE).map(function (c) { return c.length; }),
                     partidas_especial: numPartidasEspeciales,
+                    // Separacion REAL con la que se inserto en SAE (SOMA la respeta y
+                    // valida contra su propia division). El regalo se excluye.
+                    separacion: {
+                        e01: clasificacion.factura.filter(function (p) { return !p.es_regalo; })
+                            .map(function (p) { return { clave: p.codigo, cantidad: parseInt(p.cantidad) || 0 }; }),
+                        e03: clasificacion.remision
+                            .map(function (p) { return { clave: p.codigo, cantidad: parseInt(p.cantidad) || 0 }; }),
+                        especiales: (function (mapa) {
+                            var out = [];
+                            Object.keys(mapa || {}).forEach(function (prov) {
+                                (mapa[prov] || []).forEach(function (p) {
+                                    out.push({ clave: p.codigo, cantidad: parseInt(p.cantidad) || 0, clave_proveedor: (p.clave_proveedor || '').trim() });
+                                });
+                            });
+                            return out;
+                        })(separadas.especiales),
+                    },
                 });
 
             } catch (err) {
@@ -1825,6 +1842,9 @@
                     gran_total_origen: calcularGranTotalActual(),
                 };
 
+                if (foliosSae && foliosSae.separacion) {
+                    payload.separacion = foliosSae.separacion;
+                }
                 if (foliosSae) {
                     payload.folio_sae_e01 = foliosSae.folio_sae_e01 || [];
                     payload.folio_sae_e03 = foliosSae.folio_sae_e03 || [];

@@ -1189,6 +1189,25 @@
                         partidas_sae_e01:  clasificacion.factura.length,
                         partidas_sae_e03:  clasificacion.remision.length,
                         partidas_especial: partidasEspeciales,
+                        // Separacion REAL con la que se inserto en SAE: SOMA la respeta
+                        // tal cual para apartar el stock de la sucursal correcta (y
+                        // valida contra su propia division, sin bloquear). El regalo
+                        // se excluye, igual que en las partidas planas.
+                        separacion: {
+                            e01: clasificacion.factura.filter(function (p) { return !p.es_regalo; })
+                                .map(function (p) { return { clave: p.codigo, cantidad: parseInt(p.cantidad) || 0 }; }),
+                            e03: clasificacion.remision
+                                .map(function (p) { return { clave: p.codigo, cantidad: parseInt(p.cantidad) || 0 }; }),
+                            especiales: (function (mapa) {
+                            var out = [];
+                            Object.keys(mapa || {}).forEach(function (prov) {
+                                (mapa[prov] || []).forEach(function (p) {
+                                    out.push({ clave: p.codigo, cantidad: parseInt(p.cantidad) || 0, clave_proveedor: (p.clave_proveedor || '').trim() });
+                                });
+                            });
+                            return out;
+                        })(separadas.especiales),
+                        },
                     });
 
                     // 10. Si hay pendientes encolados, mostrar mensaje distinto;
@@ -1572,6 +1591,9 @@
                         gran_total_origen: (gran_total || 0) + (gran_total_especial || 0),
                     };
 
+                    if (foliosSae && foliosSae.separacion) {
+                        payload.separacion = foliosSae.separacion;
+                    }
                     if (foliosSae) {
                         payload.folio_sae_e01 = foliosSae.folio_sae_e01 || null;
                         payload.folio_sae_e03 = foliosSae.folio_sae_e03 || null;
