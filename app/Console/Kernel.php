@@ -23,12 +23,12 @@ class Kernel extends ConsoleKernel
         //          ->withoutOverlapping()
         //          ->runInBackground();
 
-        // Marca como suspendidos los clientes que llevan mas de 60 dias sin
-        // generar pedidos en la tienda en linea. Corre todas las noches a
-        // las 02:00 para no chocar con la actividad del dia.
-        $schedule->command('clientes:suspender-inactivos')
-                 ->dailyAt('02:00')
-                 ->withoutOverlapping();
+        // FASE 1 migracion-tienda: la suspension por inactividad ahora la corre
+        // SOMA (tienda:suspender-inactivos, 02:30) sobre clientes_accesos. El
+        // comando local sigue disponible a mano, pero ya no esta programado.
+        // $schedule->command('clientes:suspender-inactivos')
+        //          ->dailyAt('02:00')
+        //          ->withoutOverlapping();
 
         // Regenera el Excel de promociones globales de la tienda a las 02:00,
         // que el cliente descarga desde /tienda_online/promociones.xlsx.

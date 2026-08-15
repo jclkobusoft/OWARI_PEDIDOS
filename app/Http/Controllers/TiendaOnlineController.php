@@ -198,6 +198,11 @@ class TiendaOnlineController extends Controller
             $message->to(['direccion@owari.com.mx', 'sistemas@owari.com.mx']);
         });
 
+        // FASE 1 migracion-tienda: espejo del prospecto en SOMA (best-effort)
+        \App\Services\SomaTiendaAuth::registroProspecto([
+            'nombre' => $nombre, 'email' => $email, 'telefono' => $telefono,
+            'estado' => $estado ?? '', 'origen' => 'registro',
+        ]);
 
         \Session::flash('message', 'Tu registro esta completo. Nos pondremos en contacto contigo para brindarte la información y las condiciones de compra');
         return redirect()->route('tienda_online.registro');
@@ -249,6 +254,15 @@ class TiendaOnlineController extends Controller
         $cliente->givePermissionTo([]);
         $cliente->sendEmailVerificationNotification();
 
+        // FASE 1 migracion-tienda: la cuenta nace TAMBIEN en SOMA (dueño de
+        // las credenciales). best-effort: si SOMA no responde, el login la
+        // auto-sana en el primer acceso (motivo sin_cuenta).
+        \App\Services\SomaTiendaAuth::registrarCuenta([
+            'nombre' => $nombre, 'email' => $email, 'password' => $password,
+            'telefono' => $telefono,
+            'clave_cliente' => config('services.tienda.clave_cliente_registro'),
+        ]);
+
 
         \Session::flash('message', 'Tu registro esta completo. Revisa tu correo electronico para poder validar tu cuenta y poder tener acceso');
         return redirect()->route('tienda_online.registro');
@@ -258,14 +272,65 @@ class TiendaOnlineController extends Controller
 
     public function iniciarSesion(Request $request)
     {
-        extract($request->all());
+        $email = strtolower(trim((string) $request->input('email', '')));
+        $password = (string) $request->input('password', '');
+        $recuerdame = $request->has('recuerdame');
 
-        if (\Auth::attempt(['email' => $email, 'password' => $password, 'cliente' => true], isset($recuerdame))) {
+        // FASE 1 migracion-tienda: SOMA es el dueño de las credenciales. Se
+        // valida alla; si SOMA no responde, cae al login local de siempre.
+        $soma = \App\Services\SomaTiendaAuth::login($email, $password);
+
+        if ($soma !== null && ($soma['code'] ?? 0) === 1) {
+            // Sincronizar el user local (sesion Laravel + copia fallback) y entrar
+            $user = User::withTrashed()->where('email', $email)->first();
+            if (!$user) {
+                $user = new User();
+                $user->email = $email;
+            }
+            if ($user->trashed()) $user->restore();
+            $user->name = $soma['acceso']['nombre'] ?? ($user->name ?: $email);
+            $user->cliente = true;
+            $user->clave_cliente = $soma['cliente']['clave'] ?? $user->clave_cliente;
+            $user->phone = $soma['acceso']['telefono'] ?? $user->phone;
+            $user->password = \Hash::make($password);   // copia local para el fallback
+            $user->cuenta_suspendida = (bool) ($soma['suspendido'] ?? false);
+            if (!empty($soma['acceso']['verificado']) && !$user->email_verified_at) {
+                $user->email_verified_at = now();
+            }
+            $user->save();
+
+            \Auth::login($user, $recuerdame);
             return redirect()->route('tienda_online.dashboard');
-        } else {
+        }
+
+        if ($soma !== null && ($soma['motivo'] ?? '') === 'sin_cuenta') {
+            // La cuenta aun no existe en SOMA: si el password local es correcto,
+            // se auto-sana empujando la credencial a SOMA y se deja entrar.
+            if (\Auth::attempt(['email' => $email, 'password' => $password, 'cliente' => true], $recuerdame)) {
+                $u = \Auth::user();
+                \App\Services\SomaTiendaAuth::registrarCuenta([
+                    'nombre' => $u->name, 'email' => $email, 'password' => $password,
+                    'telefono' => $u->phone, 'clave_cliente' => $u->clave_cliente,
+                    'sincronizar' => true,
+                ]);
+                return redirect()->route('tienda_online.dashboard');
+            }
             \Session::flash('message', 'Los datos de usuario no coinciden.');
             return redirect()->route('tienda_online.login');
         }
+
+        if ($soma !== null) {
+            // SOMA respondio y rechazo (credenciales/inactivo): SOMA manda.
+            \Session::flash('message', $soma['mensaje'] ?? 'Los datos de usuario no coinciden.');
+            return redirect()->route('tienda_online.login');
+        }
+
+        // Fallback: SOMA caido — validacion local como siempre
+        if (\Auth::attempt(['email' => $email, 'password' => $password, 'cliente' => true], $recuerdame)) {
+            return redirect()->route('tienda_online.dashboard');
+        }
+        \Session::flash('message', 'Los datos de usuario no coinciden.');
+        return redirect()->route('tienda_online.login');
     }
 
     // ---------------------------------------------------------------------
@@ -292,10 +357,15 @@ class TiendaOnlineController extends Controller
             'email.email'    => 'El correo electrónico no es válido.',
         ]);
 
-        \Illuminate\Support\Facades\Password::broker()->sendResetLink([
-            'email'   => $request->email,
-            'cliente' => true,
-        ]);
+        // FASE 1 migracion-tienda: el token y el correo los genera SOMA (dueño
+        // de las credenciales); fallback local solo si SOMA no responde.
+        $soma = \App\Services\SomaTiendaAuth::passwordSolicitar((string) $request->email);
+        if ($soma === null) {
+            \Illuminate\Support\Facades\Password::broker()->sendResetLink([
+                'email'   => $request->email,
+                'cliente' => true,
+            ]);
+        }
 
         \Session::flash('status', 'Si el correo está registrado, te enviamos un enlace para restablecer tu contraseña. Revisa tu bandeja de entrada y la carpeta de spam.');
         return redirect()->route('tienda_online.password.solicitar');
@@ -315,13 +385,30 @@ class TiendaOnlineController extends Controller
         $request->validate([
             'token'    => 'required',
             'email'    => 'required|email',
-            'password' => 'required|min:6|confirmed',
+            'password' => 'required|min:8|confirmed',
         ], [
             'password.required'  => 'Escribe tu nueva contraseña.',
-            'password.min'       => 'La contraseña debe tener al menos 6 caracteres.',
+            'password.min'       => 'La contraseña debe tener al menos 8 caracteres.',
             'password.confirmed' => 'Las contraseñas no coinciden.',
         ]);
 
+        // FASE 1 migracion-tienda: el token vive en SOMA. Si SOMA lo valida,
+        // se actualiza tambien la copia local (fallback) y listo.
+        $soma = \App\Services\SomaTiendaAuth::passwordRestablecer(
+            (string) $request->email, (string) $request->token, (string) $request->password
+        );
+        if ($soma !== null) {
+            if (($soma['code'] ?? 0) === 1) {
+                User::where('email', strtolower(trim($request->email)))->where('cliente', true)
+                    ->update(['password' => \Hash::make($request->password), 'password_changed_at' => now()]);
+                \Session::flash('status', 'Tu contraseña se actualizó correctamente. Ya puedes iniciar sesión.');
+                return redirect()->route('tienda_online.login');
+            }
+            \Session::flash('message', $soma['mensaje'] ?? 'El enlace no es válido o ya expiró. Solicita uno nuevo.');
+            return redirect()->route('tienda_online.password.solicitar');
+        }
+
+        // Fallback local (SOMA caido): broker de siempre
         $status = \Illuminate\Support\Facades\Password::broker()->reset(
             [
                 'email'                 => $request->email,
