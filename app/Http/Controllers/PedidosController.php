@@ -124,10 +124,6 @@ class PedidosController extends Controller
         return view('pedidos.crear');
     }
 
-    public function demo()
-    {
-        return view('pedidos.demo');
-    }
 
     public function guardar(Request $request)
     {
@@ -653,73 +649,6 @@ class PedidosController extends Controller
         }
     }
 
-    public function guardarPedidoPendienteWeb(Request $request){
-        extract($request->all());
-        $registrado = Registrado::where('id_usuario',\Auth::user()->id)->first();
-
-        $data = [
-            'cliente' => $registrado->nombre,
-            'gran_total' => $gran_total,
-            'partidas' => strval(json_encode($partidas)),
-            'partidas_detalle' => strval(json_encode($partidas_detalle)),
-            'estado' => 'original',
-            'telefono' => $registrado->telefono,
-            'email' => $registrado->email,
-            'partidas_especiales' => strval(json_encode($partidas_especiales)),
-            'partidas_especiales_detalle' =>  strval(json_encode($partidas_especiales_detalle)),
-            'fecha_recoge' => str_replace("T"," ",$fecha_recoge),
-            'metodo_pago' => $metodo_pago,
-            'forma_pago' => $forma_pago,
-            'uso_cfdi' => $uso_cfdi,
-            'id_usuario' => \Auth::user()->id
-        ];
-
-        $pedido_pendiente = PedidoPendiente::create($data);
-
-
-        $archivo = 'Pendiente_'.$pedido_pendiente->id.'_'.date('YmdHis').".xlsx";
-        $archivo_excel = "pedidos_pendientes/".$archivo;
-
-        $encabezados = [[
-            'CLAVE',
-            'DESCRIPCION',
-            'CANTIDAD',
-            'PRECIO UNITARIO',
-            'SIN IVA',
-            'TOTAL',
-            'SAE',
-            'TIPO'
-        ]];
-
-        foreach($partidas as $key => $value){
-            $partidas[$key]['sae'] = '';
-            $partidas[$key]['tipo'] = 'BODEGA';
-        }
-
-        foreach($partidas_especiales as $key => $value){
-            $partidas_especiales[$key]['tipo'] = 'ESPECIAL';
-        }
-
-        $arreglo = array_merge($encabezados, $partidas, $partidas_especiales);
-
-
-        $export = new PedidoPendienteExport($arreglo);
-        Excel::store($export, $archivo_excel);
-
-         \Mail::send('emails.pedido_pendiente', compact('pedido_pendiente','registrado'), function ($message) use ($pedido_pendiente,$archivo){
-                $message->from('pedido_especial@owari.com.mx', 'Pedido Pendiente');
-                $message->subject("IGNORAME ESTAMOS EN PRUEBAS Pedido cliente nuevo ".$pedido_pendiente->id);
-                $message->attach(storage_path()."/app/pedidos_pendientes/".$archivo);
-                $message->to(['direccion@owari.com.mx','ventas2@owari.com.mx','ventas3@owari.com.mx','compras@owari.com.mx']);
-            });
-
-
-        return response()->json([
-            'code' => 1,
-            'id_pedido' => $pedido_pendiente->id
-        ]);
-
-    }
 
     /**
      * Proxy server-side hacia SOMA /api/pedidos/capturar.

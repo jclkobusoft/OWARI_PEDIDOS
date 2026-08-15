@@ -141,13 +141,6 @@ class TiendaOnlineController extends Controller
         return new \App\Services\CarritoService();
     }
 
-    public function aux()
-    {
-        $svc = $this->carritoSvc();
-        $carrito = $svc->obtener('normal');
-        array_push($carrito, ['numero_parte' => '04-E43023AN0C-KB', 'cantidad' => 10, 'partida' => [], 'sustituto' => false]);
-        $svc->guardar('normal', $carrito);
-    }
 
     public function login()
     {
@@ -202,7 +195,6 @@ class TiendaOnlineController extends Controller
         \Mail::send('emails.registro', compact('registrado'), function ($message) {
             $message->from('tiendaonline@owari.com.mx', 'OWARI Tienda Online');
             $message->subject("Registro de cliente");
-            //$message->to(['john@kobusoft.com']);
             $message->to(['direccion@owari.com.mx', 'sistemas@owari.com.mx']);
         });
 
@@ -233,13 +225,12 @@ class TiendaOnlineController extends Controller
             'nombre' => $nombre,
             'telefono' => $telefono,
             'email' => $email,
-            'cliente' => 'M014M'
+            'cliente' => config('services.tienda.clave_cliente_registro')
         ]);
 
         \Mail::send('emails.registro', compact('registrado'), function ($message) {
             $message->from('tiendaonline@owari.com.mx', 'OWARI Tienda Online');
             $message->subject("Registro de cliente");
-            //$message->to(['john@kobusoft.com']);
             $message->to(['direccion@owari.com.mx', 'sistemas@owari.com.mx']);
         });
 
@@ -250,7 +241,7 @@ class TiendaOnlineController extends Controller
             'email' => $email,
             'password' => \Hash::make($password),
             'cliente' => true,
-            'clave_cliente' => 'M014M'
+            'clave_cliente' => config('services.tienda.clave_cliente_registro')
         ]);
 
         $registrado->fill(['id_usuario' => $cliente->id])->save();
@@ -679,67 +670,6 @@ class TiendaOnlineController extends Controller
         return view('tienda_online.ver_producto', compact('producto', 'especificaciones', 'equivalencias', 'relacionados', 'titulo', 'especificaciones_extra', 'stockExternoProducto', 'tieneProveedorExterno'));
     }
 
-    public function detalleProductoDemo($clave)
-    {
-        $clave = str_replace('_', '/', $clave);
-        $clave = str_replace('+', '#', $clave);
-        $titulo = "Producto: " . $clave;
-
-        $productoArr = $this->somaSelect("
-            SELECT p.clave as codigo_nikko, m.nombre as marca_comercial,
-                pw.grupo, pw.subgrupo, pw.descripcion_1, pw.descripcion_2, pw.descripcion_3,
-                pw.caracteristicas_1, pw.caracteristicas_2, pw.caracteristicas_3, pw.caracteristicas_4,
-                pw.oem, COALESCE(ppr.precio, 0) as precio_normal, COALESCE(ppr.precio, 0) as precio_final,
-                0 as minimo_compra_oferta, COALESCE(p.prioridad, 0) as ventas, p.id as producto_id
-            FROM productos p
-            LEFT JOIN productos_web pw ON p.id = pw.id_producto AND pw.deleted_at IS NULL
-            LEFT JOIN marcas m ON p.id_marca = m.id AND m.deleted_at IS NULL
-            LEFT JOIN productos_precios ppr ON p.id = ppr.id_producto AND ppr.id_lista_precios = 1 AND ppr.id_sucursal = 1 AND ppr.deleted_at IS NULL
-            WHERE p.clave = ? AND p.deleted_at IS NULL LIMIT 1
-        ", [$clave]);
-
-        if (empty($productoArr)) return "El producto no existe";
-        $producto = $productoArr[0];
-
-        $especificaciones = $this->somaSelect("
-            SELECT pa.armadora, pa.modelo, pa.ano_inicio as ano_inicial, pa.ano_fin as ano_final,
-                pa.generacion_mexico, pa.version, pa.motor, pa.especificacion
-            FROM productos_aplicaciones pa INNER JOIN productos p ON pa.id_producto = p.id
-            WHERE p.clave = ? AND pa.deleted_at IS NULL AND p.deleted_at IS NULL
-            ORDER BY pa.armadora ASC, pa.modelo ASC
-        ", [$clave]);
-
-        $equivalencias = $this->somaSelect("
-            SELECT pe.clave, COALESCE(pe.id_marca, 0) as id_marca, COALESCE(m.nombre, '') as marca
-            FROM productos_equivalencias pe INNER JOIN productos p ON pe.id_producto = p.id
-            LEFT JOIN marcas m ON pe.id_marca = m.id AND m.deleted_at IS NULL
-            WHERE p.clave = ? AND pe.deleted_at IS NULL AND p.deleted_at IS NULL ORDER BY pe.id
-        ", [$clave]);
-
-        $especificaciones_extra = $this->somaSelect("
-            SELECT DISTINCT pa.armadora, pa.modelo, pa.ano_inicio as ano_inicial, pa.ano_fin as ano_final,
-                pa.generacion_mexico, pa.version, pa.motor, pa.especificacion
-            FROM productos_equivalencias pe
-            INNER JOIN productos p_origen ON pe.id_producto = p_origen.id AND p_origen.deleted_at IS NULL
-            INNER JOIN productos p_equiv ON pe.clave = p_equiv.clave AND p_equiv.deleted_at IS NULL
-            INNER JOIN productos_aplicaciones pa ON pa.id_producto = p_equiv.id AND pa.deleted_at IS NULL
-            WHERE p_origen.clave = ? AND pe.deleted_at IS NULL
-            ORDER BY pa.armadora ASC, pa.modelo ASC
-        ", [$clave]);
-
-        $relacionados = $this->somaSelect("
-            SELECT DISTINCT p2.clave as codigo_nikko, pw2.descripcion_1
-            FROM productos p2
-            LEFT JOIN productos_web pw2 ON p2.id = pw2.id_producto AND pw2.deleted_at IS NULL
-            INNER JOIN productos_aplicaciones pa2 ON p2.id = pa2.id_producto AND pa2.deleted_at IS NULL
-            WHERE pa2.modelo IN (
-                SELECT pa3.modelo FROM productos_aplicaciones pa3 INNER JOIN productos p3 ON pa3.id_producto = p3.id
-                WHERE p3.clave = ? AND pa3.deleted_at IS NULL AND p3.deleted_at IS NULL AND pa3.modelo IS NOT NULL AND pa3.modelo != ''
-            ) AND p2.clave != ? AND p2.deleted_at IS NULL LIMIT 8
-        ", [$clave, $clave]);
-
-        return view('tienda_online.ver_producto_demo', compact('producto', 'especificaciones', 'equivalencias', 'relacionados', 'titulo', 'especificaciones_extra'));
-    }
 
 
     private function quitarAcentos($texto) {
@@ -1991,11 +1921,10 @@ class TiendaOnlineController extends Controller
 
         if (isset($email)) {
             \Mail::send('emails.pedido', compact('pedido'), function ($message) use ($pedido, $archivo, $email) {
-                $message->from('tiendaonline@tiendaonline.com', 'Tienda Online');
+                $message->from('tiendaonline@owari.com.mx', 'OWARI Tienda Online');
                 $message->subject("Gracias por su compra! Pedido " . $pedido->pedido_sae);
                 $message->attach(base_path() . "/public/pdfs/pedidos/" . $archivo);
-                $message->to(['john@kobusoft.com', $email]);
-                //$message->to(['direccion@owari.com.mx','sistemas@owari.com.mx']);
+                $message->to([$email]);
             });
             return json_encode([
                 'code' => 1
@@ -2282,23 +2211,6 @@ class TiendaOnlineController extends Controller
     }
 
 
-    public function pantallaLiquidaciones()
-    {
-        $data = ["*BERG-0281", "0-123-320-007", "02-K030293SF", "02-K050290", "02-K070690", "02-K070905", "02-K080585", "02-K080590", "02-K080680", "02-T071", "021-905-106", "03-102421", "03-103540C", "03-107051", "03-2477", "03-2735", "03-2776", "03-651C", "03-681", "03-693", "03-71621", "03-76008", "03-85438", "03-904086", "03-97613", "032128M3", "034-109309AD", "03C-903-024EVM", "04-352041-KB", "04-52088632RL-KB", "04-90441VW470-KB", "04-KITDIST1MATIZ", "058-0453-966", "058-905-105", "06-AP3923", "06-APP3924", "06-APP64", "06-XP5684", "06A-905-115", "071400-4881", "08-604402", "10-13511536Z", "10-13593730", "10-13597416G", "10-20939745Z", "10-21421-03000", "10-21443-03010K", "10-22891508Z", "10-23458677Z", "10-24101887Z", "10-24465791", "10-24586005Z", "10-42342981", "10-42342981G", "10-42495490G", "10-52102799G", "10-52102799Z", "10-55354071", "10-55496663Z", "10-55568041Z", "10-9048411Z", "10-9066062Z", "10-9066063Z", "10-95390887G", "10-96190259", "10-96318238", "10-96339739G", "10-96397517", "10-96416331K", "10-96456493G", "10-96456713", "10-96495288", "10-96495288Z", "10-96536670G", "10-96676690G", "10-96958201G", "10-96958210G", "100-027", "100-028", "100-112", "10242405SFT", "11-C902", "11-C903", "11-C904", "11-C906", "11-C907", "11-C910", "11-C914", "11-C920", "11-C922", "11-C923", "11-C924", "11-C925", "11-C929", "11-S124", "1103028", "1108012SFT", "12-LA5240-G", "12-LB51830", "120-007", "120-025", "120-034", "120-039", "120-042", "120-043", "120-044", "120-063", "120-067", "120-072", "120-073", "120-098", "120-099", "120-100", "120-101", "120-102", "120-103", "120-118", "120-119", "120-123", "120-628", "120488191VM", "130-006", "130-013", "14-CB139", "14-CB225", "14-CB236", "14-CB260", "14-CH02", "14-L3301", "14-L4225", "14-L4316", "14-L4340", "14-L5000", "14-L6150", "14-L6185", "14-L6218", "14-L6851", "14-L9029", "1403093SFT", "142-938", "1426004", "15-PULCL041", "1505003SFT", "1505004SFT", "16-510059", "16-510074", "16-9036938011", "16-HUF1219", "161-4142143030", "17-282", "17-284", "18-FA11062", "18-FA11580", "18-FA4830", "18-FA7617", "18-FA899AD", "18874-11080VM", "19-93227142", "19010-5R1-003BC", "1J1-614-105FP", "1K0511327AQ", "2100290050-BFP", "220-030", "220-031", "220-033", "220-036", "220-037", "220-039", "220-042", "220-051", "220-055", "220-060", "220-066", "221620M3\/4B000-K", "23100-00QAA", "23100-EB31AVM", "30000-B13G0CK", "304-031", "32-510074", "32-510091", "32-510110", "32-ARER102RS", "32-BSK510006", "32-BSK513057", "32-NSB580541", "32-SC754", "32-UC3C33047B", "330-002", "341117SFT", "38342-D2100J", "40-03C-121-118D", "40-1336W3", "40-1600B02E10AC", "40-1J0422371C", "40-1J0955453P", "40-21510-2B040", "40-22448-2Y001J", "40-226A0-WL000", "40-24578498", "40-25182733", "40-25260-ZH30B", "40-25411-0X000K", "40-25412-0X000K", "40-2554040U60", "40-25560-VW085", "40-255601Z200", "40-26611-26000", "40-30520-59B013", "40-5S6G6M293AK", "40-67136", "40-90180529", "40-90916-03129", "40-93235615", "40-93360-02000", "40-95218007", "40-9647265980", "40-98320-02000", "40-AL23039", "40-BAF1301806", "40-BAF1301FA185", "40-BAF1301FA375", "40-BAF1301FA93", "40-BHFD13", "40-BOB32330002", "40-BP5HS-ECO", "40-CAR21130001", "40-ENCAR21100001", "40-ENCDI3101004N", "40-ENFIL26050101", "40-ENFOC3215007", "40-ENMAJ1111001D", "40-ENMAN11100004", "40-ENREG31020006", "40-FH3-100W-X", "40-FOLM3CR", "40-FOLM3CW", "40-IC107", "40-IC63VM", "40-L92Y-ECO", "40-LAFRH5B", "40-LAFRH5G", "40-LAFRH5PK", "40-LAFRH5Y", "40-MK1090", "40-MK1115", "40-MK2045", "40-MK2095", "40-MK3120", "40-MK7030", "40-MKN035", "40-MKN060", "40014-01G50SFT", "40015-01G50SFT", "41-C013", "41-C015", "41-C016", "41-C020", "41-C021", "41-C023", "41-C026", "41-C033", "41-C459", "41-C462", "41-C466", "41-C470", "41-C473", "41-C476", "41-C482", "41-C486", "41-C496", "41-C498", "41-C505", "41-C512", "41-C514", "41-C515", "41-C517", "41-C523", "41-C526", "41-C527", "41-C528", "41-C543", "41-C546", "41-C554", "41-C56", "41-C57", "41-C60", "41-D024", "41-Z075", "42431-33130", "45-CFI10559", "4677459ADBC", "47-645", "47-SCN1P", "47-SPA5", "5072022SFT", "52088710ADSFT", "547959481-A", "554293SFT", "56-FR8M", "56-HR9BP", "56-YR7DC", "58-BR60013RP", "6Q0-823-359", "718-3700925", "718-46010-3SG1B", "721-5662", "721-74-45", "721-T149107", "721-T25505", "721-T25568", "721-T25618A", "721-T8121", "721-T8505", "721-TM101", "721-TM58", "7272-D383", "728-ECO127", "728-ECO129", "733-032121121A", "738-40227-50Y01J", "738-90311-25021J", "738-90311-30014J", "738-90311-35040J", "738-90311-48020J", "738-90311-75016J", "738-J2213-225705", "738-J4023-250Y00", "738-J9091-302112", "738-LF0110602J", "740-13286445", "740-391000", "740-391005", "740-391006", "740-391363", "740-4625A437", "740-47550-0K010", "740-6R1611019A", "740-BMCCR03", "740-BMCFD07", "740-D7210-5RL1A", "740-W54105", "740-WCCR12", "742-OS53", "742-OSH3100", "748-VAINILLA", "750-510018010", "758-D1408005", "758-D1408017", "758-D2106068", "758-D357413175A", "758-D5511064C00", "758-D7000407", "758-D7701047415", "758-DES3423", "758-ES140L", "760-138127", "760-141439", "760-143204", "760-143403", "760-143420", "760-143986", "760-BRK214", "760-ST405", "761-IC1101", "761-IC1128", "761-IC123", "761-IC206", "761-IC301", "761-IC31", "761-IC360", "761-IC402", "761-IC44", "761-IC654", "761-IC71", "761-IM325", "761-RA22", "761-RH115", "761-RH116", "761-RHA118", "761-TB54", "761-TB60", "761-TH77", "761-THA117", "761-TT96", "769-46210-ET82A", "769-BHCR380309", "769-BHCR380329", "769-BHCR380342", "769-BHCR380343", "769-BHCR381160", "769-BHCR38636", "769-BHFD05", "769-BHFD11", "769-BHFD16", "769-BHFD17", "769-BHFD380299", "769-BHFD380310", "769-BHFD380323", "769-BHFD380325", "769-BHFD380355", "769-BHFD380356", "769-BHFD380357", "769-BHFD380358", "769-BHFD380530", "769-BHFD381163", "769-BHFD381164", "769-BHFD381165", "769-BHFD381170", "769-BHFD381188", "769-BHFD381263", "769-BHFD38337", "769-BHFD38904", "769-BHGM381624", "769-BHGM383347", "769-BHGM4336", "769-BHGM4367", "769-BHHO383187", "769-BHHO383189", "769-BHHO383190", "769-BHNS380761", "769-BHNS381121", "769-BHPG8013", "769-BHRN7072", "769-BHTY383161", "769-BHTY383162", "769-CI3062", "769-CI3063", "769-NF380318", "769-NF38897", "769-NF4050", "769-NF4068", "769-NF4366", "769-NF6019", "7875SFT", "7D0-698-151BFP", "8444019SFT", "892-TEC70A", "900-HS10", "900-HS36", "900-HS5", "900-HS6", "900-HS8", "90091989-G", "901-026C", "901-408", "903-7223", "905-9079-ECO", "905-99209", "905-AF8243-ECON", "906-AAC408", "906-BC88536", "906-BCMAB1600R", "906-BCMMAXR", "906-FC322", "906-FC6L80", "906-FC6T70", "906-FCA404M", "906-FCA4LDE", "906-FCA4LDE4", "906-FCATX", "906-FCAW81", "906-FCAXOD", "906-FCDPO", "906-FCE40D4W", "906-FCFIOD", "906-FCSENTRA", "906-FCTH440N", "906-GP508", "906-HC72TY", "906-HCDINA", "906-HCE0TZB", "906-HCGM27", "906-HCGM6", "906-JFF171", "906-JFPIYII", "906-JLC350BC", "906-JLD360", "906-JLF110", "906-JLGM22", "906-JLPIV", "906-JLRAMBLER", "906-JLVW20D", "906-PP11", "906-SB3", "907-TH11CR", "907-TH11SR", "907-TH12SR", "907-TH13CP", "907-TH13SP", "907-TH14", "907-TH4", "907-TH9", "908-C403", "908-C426", "908-C431", "908-G750", "908-G754", "908-H2800", "908-N2200", "908-N228", "908-N3201", "908-S903", "911-BP21", "911-PER", "913-02182", "913-02193", "913-03160", "913-03190", "913-03197", "913-08033", "913-10145", "913-20215", "913-2720902", "913-29545", "913-29550", "919-SK4", "919-SK8", "920-1051", "920-1079", "920-1082", "920-1085", "920-1088", "920-1091", "920-1100", "920-1124", "920-1127", "920-1130", "920-1171", "920-1228", "920-1233", "920-1234", "920-2434", "922-AIA9002", "924-RFD030", "924-RFD036", "924-RN044", "924-RT003", "925-EU40247", "926-648", "928-1383314", "928-19101P2A000", "928-23386455", "928-2E0121407", "928-9114661", "928-L32115350", "928-RDFD01", "931-CCE3551", "939-30000D22VKD", "939-CHRSET11K", "939-FDRSET04K", "939-GMRSET19K", "939-VWRSET01K", "941-10228100", "941-10228200", "941-40160-52Y10S", "941-40160-W5000", "941-5425", "941-54500-EB30A", "941-54501-4B000", "941-55120-150A10", "941-5Q0505323C", "941-5Q0505323D", "941-5QF505223C", "941-5QF505224C", "941-5T0501529F", "941-96535274", "942-1005005", "942-1006016", "942-1006033", "942-1008012", "942-1008042", "942-1009011", "942-1106044", "942-1106048", "942-1124005", "942-1124006", "942-1124007", "942-1126010S", "942-1306030", "942-1307001", "942-1308014", "942-1308025", "942-1309005", "942-1309016", "942-1313007", "942-1403014", "942-1403040", "942-1403100", "942-1403109", "942-1403122", "942-1406142", "942-1406143", "942-1408001", "942-1408065", "942-1408144", "942-1416016", "942-1503032", "942-1506046", "942-1506047", "942-1524001", "942-1524002", "942-1524011", "942-1524012", "942-191422804A", "942-1H0419821", "942-2105001", "942-2105007", "942-2106065", "942-2106066", "942-2108039", "942-2108040", "942-2509021", "942-26262064", "942-26262065", "942-2772019", "942-2772031", "942-2784049", "942-2784050", "942-3082061", "942-3082062", "942-3448", "942-4084034", "942-4084083", "942-42420-74P10", "942-43330-09A90", "942-45201-62R00", "942-45530-81P00", "942-48521-EA000", "942-48810-62R01", "942-48820-62R01", "942-5072934", "942-5384008", "942-5384009", "942-54410-4B000", "942-54500-8B525", "942-54668-85000", "942-55120-6LB0BB", "942-561407151A", "942-5640", "942-8425028", "942-ES2054RL", "942-K3134", "942-K6325", "942-K6600", "942-K7084", "942-K80068", "943-45517-26060", "943-ES2262RL", "943-ES3051L", "944-90311-80001", "944-TKTY104A", "944-TKTY104B", "946-58305-4BA20", "946-7430-D551", "946-7694-D859", "946-7849-D950", "946-7973-D1067", "946-8336-D1216C", "946-8410-D1169", "946-8420-D1304", "946-8652-D1334", "946-9201-D1974", "946-9322-D2087", "946-9424-D2179", "946-9509-D2269", "948-13077-5V1NK", "948-TKFD301A", "948-TKFDT206A", "949-13289621", "949-1355A278", "949-17120-69L00", "949-21481-ET000", "949-214814297R", "949-2538005500", "949-25386-0X150B", "949-3861555AZ01", "949-42426778", "949-5U0121205C", "949-68057238AA", "949-95352379A", "949-96526666", "949-96536520", "949-96553242", "949-96629064", "952-39720-EW627", "952-49110-4KV0A", "952-49110-VZ10B", "952-49500-0X110", "952-49500-0X110C", "952-96425091", "952-CH515", "952-E4B13-200AC", "952-RC7055", "952-RC7056", "952-RC7057", "952-RC7059", "952-RC7509", "952-RC7747", "952-RR9227", "952-RR9267", "957-1019", "957-1037", "957-1042", "957-1106R", "957-11220-6LB0A", "957-11220-ET01A", "957-11220-ET10A", "957-11320-01G0A", "957-11320-7Z010", "957-11320-9CA0A", "957-11350-JA00A", "957-11360-6LA0A", "957-1159", "957-1534", "957-1672H", "957-22826284", "957-23954395", "957-2503036", "957-2506030", "957-2525015", "957-3003H", "957-3040", "957-3122H", "957-3151H", "957-3158H", "957-3328", "957-3444", "957-3467", "957-3473", "957-3643", "957-3661", "957-3894", "957-3952", "957-3969", "957-41710-62R50", "957-4234H", "957-4251", "957-4262H", "957-4351", "957-4369", "957-4418H", "957-4425", "957-4457", "957-4522", "957-4609", "957-4611", "957-4629H", "957-4630H", "957-4635", "957-4720", "957-4771", "957-4831H", "957-4917", "957-50890T0AA81", "957-5290", "957-5523", "957-5524", "957-5613", "957-5Q0199262BM", "957-5Q0199855N", "957-7096", "957-7136", "957-7137", "957-7138", "957-7140H", "957-7192", "957-7199", "957-7322R", "957-7439", "957-7786", "957-7787", "957-7851", "957-7989H", "957-9380022", "959-15010-1W900", "959-15010-F450A", "959-15010-VM00C", "961-F0243", "961-FFVW159", "962-1300A045", "962-16100-39466", "962-55599494", "962-PE0115010", "967-43502-AA021", "967-43502-BZ020", "967-512371", "967-512452", "967-512551", "967-512655", "967-513324", "967-513326", "967-513374", "967-515170", "967-51750-H9000", "967-52750-1G001Z", "967-6C111A049BA", "967-90767719", "967-90767720", "967-9645242", "967-WHFD16", "967-WHGM512317", "967-WHMZ512347", "967-WHMZ513212", "967-WHTY512018", "967-WHTY512206", "967-WHTY512207", "967-WHTY512208", "967-WHTY512210", "967-WHTY512213", "967-WHTY512215", "967-WHTY512216", "967-WHTY512280", "967-WHTY513257", "967-WHTY515040", "967-WHTY518509", "968-10722871", "968-1K0615601M", "968-23742602", "968-3501050P3010", "968-40206-6LE0A", "968-42431-0K120", "968-43206-6LA0B", "968-43206-F4601", "968-43511-62R00", "968-43512-0K060", "968-55311-52R50", "968-55611-52R00", "968-580769R", "968-580770R", "968-580875R", "968-581025R", "968-5QN615601A", "968-680027R", "968-780733R", "968-95245601", "968-97841R", "968-97873R", "968-980987R", "968-982048R", "968-982494R", "968-982611R", "968-BDGM31391", "968-BRFD141265", "968-BRGM141488", "968-BRGM141829", "968-BRGM145265", "968-BRGM145282", "968-BRGM145317", "968-BRGM145624", "968-BRNS31058", "968-XM341126BC", "969-1502002", "969-2344251", "969-2344809", "969-2346003L", "969-IK16", "971-10400855", "971-19315698", "971-19315699", "971-2QB513049F", "971-3009051", "971-3430045", "971-3430082", "971-349087", "971-5C5827550", "971-65470-1AA0A", "971-81171B2000", "971-835179", "971-90450-1VK1A", "971-904520004R", "971-EG2163620D", "971-KD7763620A", "971-MP8046", "972-DZ3009", "972-DZ620", "972-DZJ102HA", "972-DZJ102HB", "972-DZKC1003", "972-DZKC108", "972-DZKC109A", "972-DZKC1100", "972-DZKC1103", "972-DZKC202", "972-DZKC202A", "972-DZKC210", "972-DZKC213", "972-DZKC214", "972-DZKC214A", "972-DZKC215", "972-DZKC219", "972-DZKC220", "972-DZKC224", "972-DZKC225", "972-DZKC226", "972-DZKC227", "972-DZKC229", "972-DZKC230", "972-DZKC231", "972-DZKC242", "972-DZKC244", "972-DZKC245", "972-DZKC246", "972-DZKC251", "972-DZKC300", "972-DZKC302", "972-DZKC305", "972-DZKC308", "972-DZKC310", "972-DZKC318", "972-DZKC324", "972-DZKC336", "972-DZKC338", "972-DZKC348", "972-DZKC349", "972-DZKC350", "972-DZKC354", "972-DZKC360", "972-DZKC361", "972-DZKC362", "972-DZKC363", "972-DZKC366", "972-DZKC372", "972-DZKC413", "972-DZKC416", "972-DZKC418", "972-DZKC421", "972-DZKC422", "972-DZKC423", "972-DZKC424", "972-DZKC427", "972-DZKC428", "972-DZKC430", "972-DZKC435", "972-DZKC439", "972-DZKC441", "972-DZKC442", "972-DZKC443", "972-DZKC444", "972-DZKC445", "972-DZKC452", "972-DZKC453", "972-DZKC455", "972-DZKC499", "972-DZKC514", "972-DZKC516", "972-DZKC519", "972-DZKC520", "972-DZKC522", "972-DZKC525", "972-DZKC526", "972-DZKC533", "972-DZKC537", "972-DZKC603A", "972-DZKC604A", "972-DZKC605", "972-DZKC608", "972-DZKC610", "972-DZKC613A", "972-DZKC613B", "972-DZKC613C", "972-DZKC615", "972-DZKC615A", "972-DZKC625", "972-DZKC630", "972-DZKC631", "972-DZKC637", "972-DZKC641", "972-DZKC644", "972-DZKC652", "972-DZKC656", "972-DZKC657", "972-DZKC658", "972-DZKC702", "972-DZKC703", "972-DZKC704", "972-DZKC705", "972-DZKC708", "972-DZKC709", "972-DZKC711", "972-DZKC715", "972-DZKC717", "972-DZKC721", "972-DZKC724", "972-DZKC725", "972-DZKC904", "972-DZKC906", "972-DZKC908A", "972-DZKT101L", "972-DZKT101R", "972-DZKT118R", "972-DZKT126L", "972-DZKT225L", "972-DZKT225R", "972-DZKT301R", "972-DZKT306R", "972-DZKT311L", "972-DZKT311R", "972-DZKT500L", "972-DZKT505L", "972-DZKT505R", "972-DZKT602L", "972-DZKT700L", "972-DZKT700R", "972-DZKT701R", "972-DZKT702L", "972-DZKT702R", "972-RWCR401", "972-RWGM265", "974-623360000", "974-CHRSET06CE", "974-CHRSET14CE", "974-FDRSET22CE", "974-GMRSET25CE", "974-PGRSET03CE", "974-VWRSET17CE", "976-5M2747A050", "978-975130", "980601RFP", "AA037", "AA053-2", "AA053-6", "AA060-3", "AA060-4", "AA061-1", "AA061-3", "AA064", "AA070", "AA071", "AA084", "AA090", "AA090-3", "AA091", "AA092", "AA093", "AA102", "AA103", "AA107", "AA108", "AA531", "AA536", "AA551", "AA552", "AA556", "AA563", "AA601", "AA602", "AA604", "AA608", "AA609", "AA612", "AA616", "AA660", "AA675", "AA726", "AA739", "AA742", "AA750", "AL-11008", "AL-11343", "BB022", "BB040", "BB046-3", "BB046-7", "BB085", "BB089", "BB206", "CB-200", "CC065-1", "CC176", "CC218-100NEGRO", "CC218-100ROJO", "CC321", "CC324", "CC367", "CC370", "CC414", "CC421", "CC913", "CC927", "CC932", "CFI-7850", "DBNC1700", "E11030043", "EE200", "EE201", "EMP-6505-105", "EU-42702", "FFNN0151", "FMC-1931", "GG034", "L-3140", "LL847R", "LL850R", "LL857", "LL865", "LL868", "MM003", "MM271", "N510001410", "NKLZTR4AIX-11", "PLZKBR7B8G", "PP009", "PP015", "PP018-1", "PP072", "PP100", "PP215", "PP227", "PP327", "PP328", "PP724", "PP7980", "PP7987", "PP7988", "PP843R", "PP857", "PP904AL", "PP904AR", "PP906", "RC-63217", "RD-CR06", "RES-1319-0010", "RR024-3", "RR049", "RR200", "SILZKBR8D8S", "SS008", "SS030", "SS032", "SS033", "SS036", "SS037", "SS037-1", "SS038", "SS040", "SS040-3", "SS042", "SS049", "SS050", "SS054-2", "SS054-3", "SS055-8", "SS057", "SS068", "SS092", "SS094", "SS1261", "SS1511", "SS16100", "SS16109A", "SS16131", "SS16139", "SS16140", "SS16142", "SS16143", "SS16145", "SS16147", "SS16148", "SS16176", "SS16227", "SS16242", "SS16243", "SS16250", "SS16252", "SS16254", "SS16271", "SS1658A", "SS1659", "SS1664", "SS1665", "SS1666", "SS1669", "SS1674", "SS1676", "SS1677", "SS1680", "SS1681", "SS1682", "SS1683", "SS1688", "SS1691", "SS1692", "SS1694", "SS1697", "SS1699", "SS2704", "SS290", "SS304", "SS3106", "SS340", "SS405", "SS503", "SS709", "TM-546", "TT012-1", "TT024-1", "TT054", "TT1189", "TT139", "TT151-5", "TT151-9", "TT182", "TT187", "TT187-1", "TT199", "TT218-9", "TT220", "TT285", "TT286", "TT3031A", "TT404", "TT409", "TT410", "TT417", "TT420", "TT421", "TT431", "TT432", "TT536", "TT558", "TT563", "TT566", "TT574", "TT605", "TT612", "TT701", "TT990", "VA-CR01", "VE-CR01", "VV007", "VWA030", "VWB013", "VWB024-1", "VWB042", "VWB108", "VWB240", "VWC045", "VWE014D", "VWG005", "VWJ012", "VWM001", "VWM002", "VWP045C", "VWS106", "VWT023", "VWT064", "VWT065", "VWT066", "VWT069-2", "VWT095", "VWT117", "VWT136", "VWT137", "VWT214", "VWZ005", "WP-FD11P", "01-MU41404", "02-PQ17520", "07-544307D-LS", "07-7926-D1021-LS", "120-053", "120-077", "15-PULF028", "15-PULVW063", "17-055", "17-286", "40-80671-3XA0BC", "40-ARE237", "40-ARE425TA", "40-F9004X 100W", "40-L381116", "40-MK204043", "40-MK24VT24587", "40-MK24VT25682", "41-C014", "41-C453", "41-C552", "41-J1815", "718-24104708", "728-ECO107D", "740-1J2721388A", "740-WCGM09", "746-54618-01G10", "746-FG260", "758-D2108030", "769-NF4040", "769-NF4062", "890-811407181A", "905-3660-ECON", "905-6600", "905-7774-ECON", "905-8602-ECON", "905-FA3384-ECON", "905-VW2-ECON", "906-JFGM173", "907-TH15", "908-C435", "908-F602", "908-N227", "913-03150", "913-26180", "913-26550", "920-1002", "924-RN059", "939-3000040P00K", "939-30000T1000K", "941-1403059", "942-1006002", "942-1103021", "942-1108020", "942-1109005", "942-1109006", "942-1109018", "942-1109019", "942-1119001", "942-1119002", "942-1408007", "942-2612475", "942-4626766", "942-ES3254RL", "942-ES3579", "942-K3128", "942-K3147A", "942-K7206", "942-K8734", "943-K3196", "943-K9210", "946-41060-AX61F", "946-7Y35-F278", "947-OF5919", "948-TKNS104S", "957-1943", "957-2925051", "957-3019", "957-7012", "957-7020", "957-7113", "957-7114", "957-7878", "971-68950-26065", "972-DZKC626", "972-DZKC710", "972-DZKC714", "972-DZKC800", "972-DZKC801", "972-DZKT320R", "AA090-1", "AA110", "AA112", "AA541", "AA548", "AA558", "AA947", "CC042", "CC074", "CC137", "CC965", "LL847", "MM008", "PP018-4", "PP018-5", "PP224", "PP5524", "PP7982", "RR004", "RR005", "RR251", "SS055-9", "SS1693", "SS1695", "SS286", "SS406", "SS7808", "TT565", "TT613", "TT868B", "VV035A", "VWB017", "VWT502", "VWZ003"];
-
-        $no_existe = true;
-
-        while ($no_existe) {
-            # code...
-            $clave = $data[array_rand($data)];
-            $producto = \DB::connection('mysql')->table('productos_busqueda')->select('*')->where('codigo_nikko', $clave)->first();
-            if ($producto)
-                $no_existe = false;
-        }
-
-
-        return view('pantallas.liquidacion', compact('producto'));
-    }
 
 
     public function facturaSAE(Request $request)
@@ -2549,164 +2461,6 @@ class TiendaOnlineController extends Controller
     }
 
 
-    public function carritoAux()
-    {
-        $titulo = "Carrito";
-        $premio = "PROMOCIONAL";
-        $productos = [];
-        $svc = $this->carritoSvc();
-        if ($svc->tiene('normal')) {
-            $carrito = $svc->obtener('normal');
-
-            $existe_premio_carrito = false;
-            foreach ($carrito as $key => $value) {
-                // code...
-                if ($value['numero_parte'] == $premio)
-                    $existe_premio_carrito = true;
-            }
-
-            if ($existe_premio_carrito && count($carrito) == 1) {
-                $svc->guardar('normal', []);
-                $carrito = [];
-            }
-
-
-
-            if (count($carrito) > 0 && !$existe_premio_carrito) {
-
-                $premio_partida = PedidoPartida::join('pedidos_web', 'pedidos_partidas.id_pedido', '=', 'pedidos_web.id')->where('pedidos_partidas.clave', $premio)->where('pedidos_web.cliente', \Auth::user()->clave_cliente)->where('pedidos_web.deleted_at', null)->first();
-
-                if (!$premio_partida) {
-                    $url = 'https://owari.appsoma.online/somma/v2.0/api/cotizar?' . http_build_query(["clave" => $premio, "cliente" => \Auth::user()->clave_cliente, 'tipo' => 'factura']);
-                    $ch = curl_init();
-                    curl_setopt($ch, CURLOPT_URL, $url);
-                    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-                    curl_setopt($ch, CURLOPT_HEADER, 0);
-                    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
-                    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0);
-                    $data = curl_exec($ch);
-                    curl_close($ch);
-                    $producto = json_decode($data, true);
-
-                    if (is_array($producto) && ($producto['existencia'] ?? 0) > 0)
-                        array_push($carrito, ['numero_parte' => $premio, 'cantidad' => 1, 'partida' => $producto, 'sustituto' => false]);
-                }
-
-            }
-
-
-            $productos = $this->buscarProductosPorClaves(array_column($carrito, 'numero_parte'));
-            // Existencias desde SOMA en UN SOLO lote (antes: un cURL a SAE por
-            // producto — N+1 que hacia lento abrir el carrito). SOMA es la fuente
-            // de la verdad del stock: espejo nocturno + decrementos por pedido.
-            $existenciasLote = $this->existenciasReales(array_map(fn($v) => $v['codigo_nikko'], $productos));
-
-            foreach ($productos as $key => $value) {
-                // Guardar SIEMPRE la existencia real (sin ficticio) para que la
-                // logica de division (split) pueda usar el stock real.
-                $existenciaRealSae = intval($existenciasLote[$value['codigo_nikko']] ?? 0);
-                $existencias_reales = ['existencia' => $existenciaRealSae];
-                $productos[$key]['existencia_real_sae'] = $existenciaRealSae;
-
-                // Sumar `stock_ficticio` al stock visible si el proveedor del
-                // producto tiene tipo_separacion='split_por_stock' en SOMA.
-                // Data-driven — NUNCA hardcodear claves de proveedor (S227, AAAE, etc.).
-                $stockFicticio = $this->obtenerStockFicticio($value['clave_proveedor'] ?? null);
-                if ($stockFicticio > 0) {
-                    $existencias_reales['existencia'] = $existenciaRealSae + $stockFicticio;
-                }
-
-
-
-
-
-                $motores = $this->buscarAplicacionesPorClave($value['codigo_nikko']);
-                $productos[$key]['motores'] = $motores;
-                foreach ($carrito as $llave => $valor) {
-                    if ($valor['numero_parte'] == $value['codigo_nikko']) {
-
-                        $productos[$key]['mensaje_existencia'] = '';
-                        $productos[$key]['solicitado'] = $valor['cantidad'];
-                        $productos[$key]['solicitado_original'] = $valor['cantidad'];
-
-                        $existenciaDisp = is_array($existencias_reales) ? ($existencias_reales['existencia'] ?? 0) : 0;
-
-                        if ($existenciaDisp <= 0) {
-                            $productos[$key]['existencia_real'] = 0;
-                            $productos[$key]['mensaje_existencia'] = 'Ya no hay existencia de este producto. <br> Solicitaste ' . $valor['cantidad'];
-                            $productos[$key]['solicitado'] = 0;
-                        }
-
-
-                        if ($existenciaDisp < $valor['cantidad']) {
-                            $productos[$key]['mensaje_existencia'] = 'Ya no hay existencia completa de este producto. De ' . $valor['cantidad'] . ' paso a ' . $existenciaDisp;
-                            $productos[$key]['solicitado'] = $existenciaDisp;
-                        }
-
-
-
-
-                        $productos[$key]['partida'] = $valor['partida'];
-                        if (isset($valor['sustituto']))
-                            $productos[$key]['sustituto'] = $valor['sustituto'];
-                        else
-                            $productos[$key]['sustituto'] = "false";
-
-
-                        if (isset($valor['negociado']))
-                            $productos[$key]['negociado'] = $valor['negociado'];
-                        break;
-                    }
-                }
-            }
-
-            $llave_final = count($productos);
-            foreach ($carrito as $llave => $valor) {
-                if ($valor['numero_parte'] == $premio) {
-
-                    $productos[$llave_final]['codigo_nikko'] = $premio;
-                    $productos[$llave_final]['descripcion_1'] = $premio;
-                    $productos[$llave_final]['marca_comercial'] = $premio;
-                    $productos[$llave_final]['solicitado'] = $valor['cantidad'];
-                    $productos[$llave_final]['partida'] = $valor['partida'];
-                    $productos[$llave_final]['sustituto'] = "false";
-                    $productos[$llave_final]['codigo_nikko'] = $premio;
-                    break;
-                }
-            }
-
-
-        }
-
-        $productos_especiales = [];
-        if ($svc->tiene('especial')) {
-            $carrito = $svc->obtener('especial');
-            $productos_especiales = $this->buscarProductosPorClaves(array_column($carrito, 'numero_parte'));
-            foreach ($productos_especiales as $key => $value) {
-                $motores = $this->buscarAplicacionesPorClave($value['codigo_nikko']);
-                $productos_especiales[$key]['motores'] = $motores;
-                foreach ($carrito as $llave => $valor) {
-                    if ($valor['numero_parte'] == $value['codigo_nikko']) {
-                        $productos_especiales[$key]['solicitado'] = $valor['cantidad'];
-                        $productos_especiales[$key]['partida'] = $valor['partida'];
-                        if (isset($valor['sustituto']))
-                            $productos_especiales[$key]['sustituto'] = $valor['sustituto'];
-                        else
-                            $productos_especiales[$key]['sustituto'] = "false";
-
-
-                        if (isset($valor['negociado']))
-                            $productos_especiales[$key]['negociado'] = $valor['negociado'];
-                        break;
-                    }
-                }
-            }
-        }
-
-        $estampa = date("YmdHis");
-
-        return view('tienda_online.carrito_aux', compact('productos', 'estampa', 'titulo', 'productos_especiales'));
-    }
 
     public function generarCatalogo(Request $request)
     {
@@ -2753,18 +2507,6 @@ class TiendaOnlineController extends Controller
         return view('tienda_online.exito_pendiente', compact('titulo', 'id_pedido'));
     }
 
-    public function carritoSesion()
-    {
-        $carrito = $this->carritoSvc()->obtener('normal');
-
-        echo "<table><tr><th>CLAVE</th><th>CANTIDAD</th></tr>";
-        if ($carrito) {
-            foreach ($carrito as $key => $value) {
-                echo "<tr><td>" . $value['numero_parte'] . "</td><td>" . $value['cantidad'] . "</td></tr>";
-            }
-        }
-        echo "</table>";
-    }
 
     // ---------------------------------------------------------------------
     //  Carrito auxiliar (rapido): solo sesion, sin analisis de precios.

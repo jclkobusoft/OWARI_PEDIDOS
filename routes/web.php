@@ -12,7 +12,9 @@ use Illuminate\Support\Facades\Route;
 | contains the "web" middleware group. Now create something great!
 |
 */
-\Auth::routes(['verify' => true]);
+// Login/logout de operadores + verificacion de email de clientes. El registro y
+// el reset de scaffold NO se usan (la tienda tiene flujo propio en /clientes/*).
+\Auth::routes(['verify' => true, 'register' => false, 'reset' => false]);
 
 Route::get('/', function () {
     return redirect()->route('login');
@@ -22,11 +24,8 @@ Route::get('/ver_pdf/{uuid}', [App\Http\Controllers\TiendaOnlineController::clas
 Route::get('/cfdi/{uuid}.zip', [App\Http\Controllers\TiendaOnlineController::class, 'downloadZip'])->name('cfdi.zip');
 
 
-Route::get('/permisos', [App\Http\Controllers\PermisosController::class, 'index'])->name('permisos.crear'); //solo se usa para crear los permisos en las tablas
 
 
-Route::get('/pl', [App\Http\Controllers\TiendaOnlineController::class, 'pantallaLiquidaciones']);
-Route::get('/demo/factura', [App\Http\Controllers\HomeController::class, 'demoFactura']);
 
 Route::get('/clientes/login', [App\Http\Controllers\TiendaOnlineController::class, 'login'])->name('tienda_online.login');
 Route::post('/clientes/login', [App\Http\Controllers\TiendaOnlineController::class, 'iniciarSesion'])->name('tienda_online.iniciar_sesion');
@@ -42,9 +41,7 @@ Route::post('/clientes/registrar', [App\Http\Controllers\TiendaOnlineController:
 Route::post('/clientes/registrar_nuevo', [App\Http\Controllers\TiendaOnlineController::class, 'registrar_nuevo'])->name('tienda_online.registrar_nuevo');
 Route::get('/cerrar_sesion', [App\Http\Controllers\TiendaOnlineController::class, 'logout'])->name('tienda_online.logout');
 
-Route::get('/aux', [App\Http\Controllers\TiendaOnlineController::class, 'aux'])->name('tienda_online.aux');
 
-Auth::routes();
 Route::get('/home', [App\Http\Controllers\HomeController::class, 'index'])->name('home');
 Route::get('/productos/reporte-inventario', [App\Http\Controllers\HomeController::class, 'reporteInventario'])->name('productos.reporte_inventario');
 Route::get('/productos/reporte-negados', [App\Http\Controllers\HomeController::class, 'reporteNegados'])->name('productos.reporte_negados');
@@ -53,7 +50,6 @@ Route::get('/productos/larga-venta', [App\Http\Controllers\HomeController::class
 
 Route::get('/pedidos/crear', [App\Http\Controllers\PedidosController::class, 'crear'])->name('pedidos.crear');
 Route::get('/pedidos/busqueda', [App\Http\Controllers\PedidosController::class, 'apiBusqueda'])->name('pedidos.busqueda');
-Route::get('/pedidos/demo', [App\Http\Controllers\PedidosController::class, 'demo'])->name('pedidos.demo');
 Route::post('/pedidos/guardar', [App\Http\Controllers\PedidosController::class, 'guardar'])->name('pedidos.guardar');
 Route::post('/soma/capturar-proxy', [App\Http\Controllers\PedidosController::class, 'proxyCapturarSoma'])->name('soma.capturar_proxy');
 Route::post('/pedidos/encolar-sae-pendiente', [App\Http\Controllers\PedidosController::class, 'encolarSaePendiente'])->name('pedidos.encolar_sae_pendiente');
@@ -65,7 +61,6 @@ Route::post('/pedidos-sae-pendientes/{id}/reintentar', [App\Http\Controllers\Ped
 Route::post('/pedidos-sae-pendientes/{id}/cancelar',   [App\Http\Controllers\PedidosController::class, 'saePendienteCancelar'])->name('pedidos_sae_pendientes.cancelar');
 Route::post('pedidos/guardar_especial', [App\Http\Controllers\PedidosController::class, 'guardarPedidoEspecial'])->name('pedidos.guardar_especial');
 
-Route::post('pedidos/guardar_pedido_pendiente_web', [App\Http\Controllers\PedidosController::class, 'guardarPedidoPendienteWeb'])->name('pedidos.guardar_pedido_pendiente_web');
 
 
 Route::get('/etiquetas/crear', [App\Http\Controllers\EtiquetasController::class, 'crear'])->name('etiquetas.crear');
@@ -111,13 +106,11 @@ Route::middleware(['auth', 'verified', 'cliente.suspendido'])->prefix('tienda_on
     Route::get('productos', [App\Http\Controllers\TiendaOnlineController::class, 'productos'])->name('tienda_online.productos');
     Route::get('autocompletar', [App\Http\Controllers\TiendaOnlineController::class, 'autocompletar'])->name('tienda_online.autocompletar');
     Route::get('producto/{clave}', [App\Http\Controllers\TiendaOnlineController::class, 'detalleProducto'])->name('tienda_online.detalles_producto');
-    Route::get('producto_demo/{clave}', [App\Http\Controllers\TiendaOnlineController::class, 'detalleProductoDemo'])->name('tienda_online.detalles_producto_demo');
     Route::post('productos/actualizar-favoritos', [App\Http\Controllers\TiendaOnlineController::class, 'actualizarFavoritos'])->name('tienda_online.actualizar_favoritos');
     Route::get('productos/favoritos', [App\Http\Controllers\TiendaOnlineController::class, 'favoritos'])->name('tienda_online.favoritos');
     Route::post('carrito/actualizar', [App\Http\Controllers\TiendaOnlineController::class, 'actualizarCarrito'])->name('tienda_online.carrito_actualizar');
     Route::post('carrito/actualizar_especial', [App\Http\Controllers\TiendaOnlineController::class, 'actualizarCarritoEspecial'])->name('tienda_online.carrito_actualizar_especial');
     Route::get('carrito', [App\Http\Controllers\TiendaOnlineController::class, 'carrito'])->name('tienda_online.carrito');
-    Route::get('carrito_aux', [App\Http\Controllers\TiendaOnlineController::class, 'carritoAux'])->name('tienda_online.carrito_aux');
     // Carrito auxiliar rapido (solo clave + cantidad, sin analisis) + Excel + vaciar.
     Route::get('carrito-rapido', [App\Http\Controllers\TiendaOnlineController::class, 'carritoRapido'])->name('tienda_online.carrito_rapido');
     Route::get('carrito-rapido/excel', [App\Http\Controllers\TiendaOnlineController::class, 'carritoRapidoExcel'])->name('tienda_online.carrito_rapido_excel');
@@ -162,7 +155,6 @@ Route::middleware(['auth', 'verified', 'cliente.suspendido'])->prefix('tienda_on
 
     Route::post('/pedidos_especiales_sae/guardar', [App\Http\Controllers\PedidosEspecialesSaeController::class, 'guardarPedidoEspecialSae'])->name('pedidos_especiales_sae.guardar');
 
-    Route::get('/pedidos_especiales_sae/test', [App\Http\Controllers\PedidosEspecialesSaeController::class, 'test'])->name('pedidos_especiales.test');
 
     Route::get('/pedidos/ver_factura_sae', [App\Http\Controllers\TiendaOnlineController::class, 'facturaSAE'])->name('tienda_online.factura_sae');
 
@@ -175,7 +167,6 @@ Route::middleware(['auth', 'verified', 'cliente.suspendido'])->prefix('tienda_on
     // 2. (MODIFICADA) Esta ruta recibirá la solicitud del formulario
     // Nota: Quitamos el /{conteo} de la URL.
     Route::get('/exportar-conteo', [App\Http\Controllers\ConteoExportController::class, 'exportar'])->name('conteo.exportar');
-    Route::get('/carrito-sesion', [App\Http\Controllers\TiendaOnlineController::class, 'carritoSesion'])->name('carrito.sesion');
 
 
 

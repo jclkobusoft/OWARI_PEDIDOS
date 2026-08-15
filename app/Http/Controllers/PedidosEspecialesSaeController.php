@@ -27,11 +27,6 @@ class PedidosEspecialesSaeController extends Controller
     }
 
 
-    public function test(){
-
-        return view('test.partidas');
-
-    }
 
 
     public function guardarPedidoEspecialSae(Request $request)

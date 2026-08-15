@@ -44,16 +44,10 @@ return [
         'api_key' => env('SOMA_INBOUND_API_KEY'),
     ],
 
-    // Altiria SMS — recordatorios a clientes inactivos. `token` es el valor que
-    // va despues de "Basic " en el header Authorization. `sender` es el
-    // remitente alfanumerico (max 11 chars) que vera el cliente.
-    'altiria' => [
-        'url'    => env('ALTIRIA_URL', 'https://api.altiria.com/api/rest/sms'),
-        'token'  => env('ALTIRIA_AUTH_TOKEN'),
-        'sender' => env('ALTIRIA_SENDER', 'OWARI'),
-        // Numero (admin) que recibe el SMS de resumen tras cada corrida del
-        // recordatorio, para validar cuantos se enviaron.
-        'resumen_tel' => env('ALTIRIA_RESUMEN_TEL', '525520677410'),
+    // Tienda en linea: clave de cliente generica con la que nacen las cuentas
+    // del auto-registro (antes estaba hardcodeada en el controller).
+    'tienda' => [
+        'clave_cliente_registro' => env('TIENDA_CLAVE_CLIENTE_REGISTRO', 'M014M'),
     ],
 
 ];

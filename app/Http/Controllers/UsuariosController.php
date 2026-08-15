@@ -9,7 +9,11 @@ use App\Models\User;
 
 class UsuariosController extends Controller
 {
-    //
+    public function __construct()
+    {
+        $this->middleware('auth');
+    }
+
     public function index(UsersDataTable $dataTable)
     {
         if(!\Auth::user()->can('usuarios_ver'))

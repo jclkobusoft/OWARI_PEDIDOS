@@ -30,13 +30,6 @@ class Kernel extends ConsoleKernel
                  ->dailyAt('02:00')
                  ->withoutOverlapping();
 
-        // DESACTIVADO 2026-07-03 (por solicitud del cliente, no es necesario):
-        // Envia SMS recordatorio (Altiria) a clientes con telefono y 15+ dias
-        // sin pedido. A las 10:00 (horario habil) para no molestar de noche.
-        // $schedule->command('clientes:recordatorio-sms')
-        //          ->dailyAt('10:00')
-        //          ->withoutOverlapping();
-
         // Regenera el Excel de promociones globales de la tienda a las 02:00,
         // que el cliente descarga desde /tienda_online/promociones.xlsx.
         $schedule->command('promociones:generar-excel')

@@ -158,38 +158,6 @@ class HomeController extends Controller
 
     }
 
-    public function demoFactura(Request $request)
-    {
-
-
-        $clave_cliente = "L042M";
-        $url = 'https://sistemasowari.com:8443/catalowari/api/pedidos_cliente?' . http_build_query(["clave" => $clave_cliente, "pedidos" => ['1W1011', '1W1012']]);
-
-        //dd($url);
-
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_HEADER, 0);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0);
-        $data = curl_exec($ch);
-        curl_close($ch);
-        $pedidos = json_decode($data, true);
-
-
-
-        dd($pedidos);
-
-        /*$data = 'https://tu-url.com/folio/ABC123';
-        $qr = base64_encode(
-            QrCode::format('png')->generate($data)
-        );
-        $partidas = [];
-        $pdf = PDF::loadView('pdf.factura',compact('partidas','qr'));
-        return $pdf->stream();*/
-
-    }
 
     public function reporteLargaVenta(Request $request)
     {

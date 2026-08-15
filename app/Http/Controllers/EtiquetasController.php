@@ -45,9 +45,9 @@ class EtiquetasController extends Controller
     public function pdf(Request $r){
         $data = $r->all();
         $customPaper = array(0,0,72,144);
-        $pdf = Pdf::loadView('etiquetas.moldes.etiqueta_producto', $data)->setPaper($customPaper, 'landscape')->setWarnings(false)->save('etiquetas/etiqueta.pdf');
+        $pdf = Pdf::loadView('etiquetas.moldes.etiqueta_producto', $data)->setPaper($customPaper, 'landscape')->setWarnings(false)->save($archivo = 'etiquetas/etiqueta_' . uniqid() . '.pdf');
         return json_encode([
-            'archivo' => '/etiquetas/etiqueta.pdf'
+            'archivo' => '/' . $archivo
         ]);
     }
 
@@ -103,10 +103,10 @@ class EtiquetasController extends Controller
         
     
         $customPaper = array(0,0,180,216);
-        $pdf = Pdf::loadView('etiquetas.moldes.etiqueta_paquetes', $data)->setPaper($customPaper, 'landscape')->setWarnings(false)->save('etiquetas/etiqueta_paquetes.pdf');
+        $pdf = Pdf::loadView('etiquetas.moldes.etiqueta_paquetes', $data)->setPaper($customPaper, 'landscape')->setWarnings(false)->save($archivo = 'etiquetas/etiqueta_paquetes_' . uniqid() . '.pdf');
         return json_encode([
             'code' => 1,
-            'archivo' => '/etiquetas/etiqueta_paquetes.pdf'
+            'archivo' => '/' . $archivo
         ]);
     }
 
@@ -120,9 +120,9 @@ class EtiquetasController extends Controller
     public function pdfCompra(Request $r){
         $data = $r->all();
         $customPaper = array(0,0,72,144);
-        $pdf = Pdf::loadView('etiquetas.moldes.etiqueta_compra', $data)->setPaper($customPaper, 'landscape')->setWarnings(false)->save('etiquetas/etiqueta_compra.pdf');
+        $pdf = Pdf::loadView('etiquetas.moldes.etiqueta_compra', $data)->setPaper($customPaper, 'landscape')->setWarnings(false)->save($archivo = 'etiquetas/etiqueta_compra_' . uniqid() . '.pdf');
         return json_encode([
-            'archivo' => '/etiquetas/etiqueta_compra.pdf'
+            'archivo' => '/' . $archivo
         ]);
 
     }

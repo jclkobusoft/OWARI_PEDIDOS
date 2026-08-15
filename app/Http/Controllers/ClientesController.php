@@ -11,7 +11,11 @@ use App\Models\ProductoMasVendido;
 
 class ClientesController extends Controller
 {
-    //
+    public function __construct()
+    {
+        $this->middleware('auth');
+    }
+
     public function index(ClientesDataTable $dataTable)
     {
         if(!\Auth::user()->can('clientes_ver'))

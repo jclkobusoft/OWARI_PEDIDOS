@@ -9,6 +9,11 @@ use Maatwebsite\Excel\Facades\Excel;
 
 class ConteoExportController extends Controller
 {
+    public function __construct()
+    {
+        $this->middleware('auth');
+    }
+
     /**
      * (NUEVO) Muestra el formulario para ingresar el número de conteo.
      */
