@@ -560,21 +560,40 @@ class TiendaOnlineController extends Controller
         }
 
         list($querySql, $queryBindings) = $this->querySoma($tipo_busqueda, $q_busqueda ?? $q);
-        $resultados = \DB::connection('owari_soma')->select($querySql, $queryBindings);
-        // Deduplicar por codigo_nikko
-        $vistos = [];
-        $unicos = [];
-        foreach ($resultados as $r) {
-            if (!isset($vistos[$r->codigo_nikko])) {
-                $vistos[$r->codigo_nikko] = true;
-                $unicos[] = $r;
-            }
-        }
-        $resultados = $unicos;
-        $total_resultados = count($resultados);
         $mostrar_productos = 15;
         $offset = ($p - 1) * $mostrar_productos;
-        $resultados = array_slice($resultados, $offset, $mostrar_productos);
+
+        if ($tipo_busqueda === 'todos') {
+            // FIX 500 (2026-08-18): con q vacia este modo traia el catalogo COMPLETO
+            // (100k+ filas) y paginaba en PHP -> memoria agotada. Se pagina en SQL
+            // con la MISMA semantica: dedup por codigo_nikko conservando la fila de
+            // mayor venta (DISTINCT ON) y el mismo orden ventas DESC, descripcion ASC.
+            $total_resultados = (int) (\DB::connection('owari_soma')->select(
+                "SELECT COUNT(*) c FROM (SELECT DISTINCT codigo_nikko FROM ({$querySql}) t) d"
+            )[0]->c ?? 0);
+            $resultados = \DB::connection('owari_soma')->select(
+                "SELECT * FROM (
+                    SELECT DISTINCT ON (t.codigo_nikko) t.* FROM ({$querySql}) t
+                    ORDER BY t.codigo_nikko, t.ventas DESC NULLS LAST
+                 ) d
+                 ORDER BY d.ventas DESC NULLS LAST, d.descripcion_1 ASC NULLS LAST
+                 LIMIT {$mostrar_productos} OFFSET {$offset}"
+            );
+        } else {
+            $resultados = \DB::connection('owari_soma')->select($querySql, $queryBindings);
+            // Deduplicar por codigo_nikko
+            $vistos = [];
+            $unicos = [];
+            foreach ($resultados as $r) {
+                if (!isset($vistos[$r->codigo_nikko])) {
+                    $vistos[$r->codigo_nikko] = true;
+                    $unicos[] = $r;
+                }
+            }
+            $resultados = $unicos;
+            $total_resultados = count($resultados);
+            $resultados = array_slice($resultados, $offset, $mostrar_productos);
+        }
 
         // Cargar equivalencias de los resultados de esta pagina
         $productoIds = array_filter(array_map(function($r) { return $r->producto_id; }, $resultados));
