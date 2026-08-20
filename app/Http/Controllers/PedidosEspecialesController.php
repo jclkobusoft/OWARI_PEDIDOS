@@ -88,20 +88,20 @@ class PedidosEspecialesController extends Controller
         // PedidoEspecialPartida ya excluye partidas borradas; agregamos el
         // filtro explicito de pedidos_especiales.deleted_at por el join crudo.
         $partidas = PedidoEspecialPartida::query()
-            ->join('pedidos_especiales', 'pedidos_especiales_partidas.id_pedido', '=', 'pedidos_especiales.id')
-            ->whereNull('pedidos_especiales.deleted_at')
-            ->whereBetween('pedidos_especiales.created_at', [$inicio, $fin])
-            ->whereRaw('pedidos_especiales_partidas.cantidad - COALESCE(pedidos_especiales_partidas.surtido, 0) > 0')
-            ->orderBy('pedidos_especiales.cliente')
-            ->orderBy('pedidos_especiales_partidas.clave')
+            ->join('tienda_pedidos_especiales', 'tienda_pedidos_especiales_partidas.id_pedido', '=', 'tienda_pedidos_especiales.id')
+            ->whereNull('tienda_pedidos_especiales.deleted_at')
+            ->whereBetween('tienda_pedidos_especiales.created_at', [$inicio, $fin])
+            ->whereRaw('tienda_pedidos_especiales_partidas.cantidad - COALESCE(tienda_pedidos_especiales_partidas.surtido, 0) > 0')
+            ->orderBy('tienda_pedidos_especiales.cliente')
+            ->orderBy('tienda_pedidos_especiales_partidas.clave')
             ->get([
-                'pedidos_especiales_partidas.clave',
-                'pedidos_especiales_partidas.cantidad',
-                'pedidos_especiales_partidas.surtido',
-                'pedidos_especiales.cliente',
-                'pedidos_especiales.clave_proveedor',
-                'pedidos_especiales.id as id_pedido_especial',
-                'pedidos_especiales.created_at',
+                'tienda_pedidos_especiales_partidas.clave',
+                'tienda_pedidos_especiales_partidas.cantidad',
+                'tienda_pedidos_especiales_partidas.surtido',
+                'tienda_pedidos_especiales.cliente',
+                'tienda_pedidos_especiales.clave_proveedor',
+                'tienda_pedidos_especiales.id as id_pedido_especial',
+                'tienda_pedidos_especiales.created_at',
             ]);
 
         // Armado del CSV (primera fila = encabezados).

@@ -11,7 +11,11 @@ class PedidoEspecial extends Model
     use HasFactory;
     use SoftDeletes;
 
-    protected $table = 'pedidos_especiales';
+    // Unificado post-corte: los especiales viven en SOMA (historico +
+    // tienda nueva + telemarketing comparten la misma tabla, como antes)
+    protected $connection = 'owari_soma';
+
+    protected $table = 'tienda_pedidos_especiales';
 
 
      protected $fillable = [

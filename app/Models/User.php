@@ -21,6 +21,11 @@ class User extends Authenticatable implements MustVerifyEmail
      * @var array<int, string>
      */
     use SoftDeletes;
+
+    // Conexion EXPLICITA: los modelos de especiales viven en la conexion
+    // owari_soma y las relaciones hacia User heredarian esa conexion si
+    // aqui no se fija la local (users no existe en SOMA).
+    protected $connection = 'pgsql';
     protected $fillable = [
         'name',
         'email',
